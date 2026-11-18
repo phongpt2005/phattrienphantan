@@ -1,0 +1,11 @@
+apiVersion: 1
+
+providers:
+  - name: 'DMS Dashboards'
+    orgId: 1
+    folder: 'Distributed DMS'
+    type: file
+    disableDeletion: false
+    editable: true
+    options:
+      path: /etc/grafana/dashboards

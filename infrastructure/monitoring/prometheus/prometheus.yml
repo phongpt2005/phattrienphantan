@@ -1,0 +1,42 @@
+global:
+  scrape_interval: 5s
+  evaluation_interval: 5s
+
+rule_files:
+  - /etc/prometheus/targets/rules.yml
+
+scrape_configs:
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+
+  # Search Gateway và content-worker chạy nhiều bản: dns_sd trả về MỌI bản đang sống của service
+  - job_name: 'dms-search-engine-service'
+    metrics_path: '/metrics'
+    dns_sd_configs:
+      - names: ['search-engine-service']
+        type: A
+        port: 3003
+        refresh_interval: 5s
+    relabel_configs:
+      - target_label: service
+        replacement: search-engine-service
+
+  - job_name: 'dms-content-worker'
+    metrics_path: '/metrics'
+    dns_sd_configs:
+      - names: ['content-worker']
+        type: A
+        port: 3010
+        refresh_interval: 5s
+    relabel_configs:
+      - target_label: service
+        replacement: content-worker
+
+  # Mọi node phòng ban: Prometheus tự nạp lại file trong targets/ (file_sd).
+  # Thêm phòng ban mới = scripts/add-department.sh ghi thêm 1 file <code>.json, không sửa file này.
+  - job_name: 'dms-departments'
+    metrics_path: '/metrics'
+    file_sd_configs:
+      - files: ['/etc/prometheus/targets/*.json']
+        refresh_interval: 10s

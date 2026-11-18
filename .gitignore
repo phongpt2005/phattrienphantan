@@ -1,0 +1,13 @@
+# ============================================================
+# Git ignore - KHÔNG commit credentials và data volumes
+# ============================================================
+.env
+*.env.local
+data/
+volumes/
+node_modules/
+dist/
+*.log
+.DS_Store
+Thumbs.db
+departments/

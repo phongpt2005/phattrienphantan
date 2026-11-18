@@ -1,0 +1,36 @@
+{
+  "connector.class": "io.debezium.connector.postgresql.PostgresConnector",
+  "tasks.max": "1",
+  "plugin.name": "pgoutput",
+
+  "database.hostname": "__DB_HOST__",
+  "database.port": "5432",
+  "database.user": "__REPL_USER__",
+  "database.password": "__REPL_PASSWORD__",
+  "database.dbname": "__DB_NAME__",
+
+  "topic.prefix": "dms.dept.__CODE_LC__",
+  "schema.include.list": "public",
+  "table.include.list": "public.outbox",
+  "publication.name": "dms_outbox_pub",
+  "publication.autocreate.mode": "disabled",
+  "slot.name": "dbz___CODE_LC___outbox",
+  "snapshot.mode": "no_data",
+  "tombstones.on.delete": "false",
+
+  "transforms": "outbox",
+  "transforms.outbox.type": "io.debezium.transforms.outbox.EventRouter",
+  "transforms.outbox.table.field.event.id": "event_id",
+  "transforms.outbox.table.field.event.key": "aggregate_id",
+  "transforms.outbox.table.field.event.payload": "payload",
+  "transforms.outbox.table.expand.json.payload": "true",
+  "transforms.outbox.route.by.field": "aggregate_type",
+  "transforms.outbox.route.topic.replacement": "dms.dept.__CODE_LC__.${routedByValue}",
+  "transforms.outbox.table.fields.additional.placement": "event_type:header:eventType,schema_version:header:schemaVersion,trace_id:header:traceparent",
+
+  "key.converter": "org.apache.kafka.connect.storage.StringConverter",
+  "value.converter": "org.apache.kafka.connect.json.JsonConverter",
+  "value.converter.schemas.enable": "false",
+
+  "heartbeat.interval.ms": "10000"
+}

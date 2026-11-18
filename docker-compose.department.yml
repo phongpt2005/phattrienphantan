@@ -1,0 +1,110 @@
+# ============================================================
+# TEMPLATE MỘT PHÒNG BAN MỚI (R3): chạy bằng scripts/add-department.sh
+#
+#   Cùng image department-service với HR/ACC; mỗi phòng ban có Postgres + MinIO riêng (R1).
+#   Không sửa bất kỳ file nào của core hay của HR/ACC:
+#     - nginx   : /api/dept/<code>/... tự định tuyến tới container dept-<code> (DNS Docker)
+#     - Registry: node tự đăng ký khi khởi động; Search Gateway fan-out tới node mới ngay
+#     - Kafka   : Index Projector tự nhận topic dms.dept.<code>.document theo pattern
+#     - Debezium: add-department.sh đăng ký connector outbox-<code> (cùng template)
+#     - Prometheus: script ghi thêm targets/<code>.json (file_sd)
+#
+# Biến lấy từ .env (chung) và departments/<code>.env (riêng, do script sinh):
+#   DEPT_CODE, DEPT_LC, DEPT_NAME, DEPT_DB_USER/PASSWORD/NAME, DEPT_MINIO_USER/PASSWORD
+# Dev: một Postgres (không replica) để nhẹ máy. K8s dùng CloudNativePG 3 instance (xem docs).
+# ============================================================
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: dept-${DEPT_LC}-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${DEPT_DB_USER}
+      POSTGRES_PASSWORD: ${DEPT_DB_PASSWORD}
+      POSTGRES_DB: ${DEPT_DB_NAME}
+      POSTGRES_REPLICATION_USER: ${POSTGRES_REPLICATION_USER}
+      POSTGRES_REPLICATION_PASSWORD: ${DEPT_REPL_PASSWORD}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./infrastructure/postgres/postgresql-primary.conf:/etc/postgresql/postgresql.conf:ro
+      - ./infrastructure/postgres/replication/init-replication.sh:/docker-entrypoint-initdb.d/01-init-replication.sh:ro
+      - ./infrastructure/postgres/init-scripts/node/01-schema.sql:/docker-entrypoint-initdb.d/02-schema.sql:ro
+    command: postgres -c config_file=/etc/postgresql/postgresql.conf
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DEPT_DB_USER} -d ${DEPT_DB_NAME}"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+    networks: [dms-network]
+    deploy:
+      resources:
+        limits:
+          memory: 384M
+
+  minio:
+    image: quay.io/minio/minio:latest
+    container_name: dept-${DEPT_LC}-minio
+    restart: unless-stopped
+    environment:
+      MINIO_ROOT_USER: ${DEPT_MINIO_USER}
+      MINIO_ROOT_PASSWORD: ${DEPT_MINIO_PASSWORD}
+    volumes:
+      - miniodata:/data
+    command: server /data --console-address ":9001"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:9000/minio/health/live || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+    networks: [dms-network]
+    deploy:
+      resources:
+        limits:
+          memory: 192M
+
+  # Tên container PHẢI là dept-<code>: nginx và Registry dựa vào quy ước này.
+  dept:
+    image: dms/department-service:2.0
+    container_name: dept-${DEPT_LC}
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      DEPT_CODE: ${DEPT_CODE}
+      DEPT_NAME: ${DEPT_NAME}
+      DATABASE_URL: postgresql://${DEPT_DB_USER}:${DEPT_DB_PASSWORD}@dept-${DEPT_LC}-db:5432/${DEPT_DB_NAME}?schema=public
+      MINIO_ENDPOINT: dept-${DEPT_LC}-minio
+      MINIO_PORT: 9000
+      MINIO_USE_SSL: "false"
+      MINIO_ACCESS_KEY: ${DEPT_MINIO_USER}
+      MINIO_SECRET_KEY: ${DEPT_MINIO_PASSWORD}
+      MINIO_BUCKET: ${DEPT_LC}-documents
+      JWT_SECRET: ${JWT_SECRET}
+      INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN}
+      REGISTRY_URL: http://search-engine-service:3003
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://jaeger:4318
+      SEED_DEMO_USERS: ${SEED_DEMO_USERS:-false}
+      DEMO_ADMIN_PASSWORD: ${DEMO_ADMIN_PASSWORD:-}
+      DEMO_MANAGER_PASSWORD: ${DEMO_MANAGER_PASSWORD:-}
+      DEMO_STAFF_PASSWORD: ${DEMO_STAFF_PASSWORD:-}
+    depends_on:
+      db:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    networks: [dms-network]
+    deploy:
+      resources:
+        limits:
+          memory: 384M
+
+volumes:
+  pgdata:
+    name: dms-pgdata-dept-${DEPT_LC}
+  miniodata:
+    name: dms-minio-dept-${DEPT_LC}
+
+networks:
+  dms-network:
+    external: true
+    name: dms-network
