@@ -1,4 +1,7 @@
-import { BadRequestException, ForbiddenException, Injectable, Logger, NotFoundException, ServiceUnavailableException } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException, Injectable, Logger, NotFoundException, ServiceUnavailableException } from '@nestjs/common';
+
+/** Thời hạn giữ chỗ PROCESSING: quá hạn (tiến trình chết giữa chừng) thì người khác được nhận lại yêu cầu. */
+const CLAIM_LEASE = "interval '2 minutes'";
 import { Pool } from 'pg';
 import { AuthenticatedUser, SERVICE_TOKEN_HEADER, isExecutive, requireEnv } from '@dms/common';
 import { NotificationService } from '../notification/notification.service';
@@ -194,10 +197,37 @@ export class ShareService {
 
     const req = check.rows[0];
     this.assertCanReview(req, actor);
+    if (req.status === 'PROCESSING') {
+      throw new ConflictException('Yêu cầu đang được người khác xử lý, vui lòng tải lại sau ít phút');
+    }
     if (req.status !== 'PENDING') {
       throw new BadRequestException(`Yêu cầu này đã được xử lý trước đó (Trạng thái: ${req.status})`);
     }
 
+    // Giữ chỗ nguyên tử (compare-and-set): chỉ MỘT người duyệt đi tiếp. Người thứ hai nhận 409.
+    // Nhận lại được yêu cầu PROCESSING đã quá hạn (tiến trình trước chết sau khi giữ chỗ); node cấp quyền idempotent
+    // theo accessRequestId nên duyệt lại không tạo lượt chia sẻ thứ hai.
+    const claim = await this.pool.query(
+      `UPDATE access_request SET status = 'PROCESSING', reviewed_by = $1, updated_at = NOW()
+        WHERE request_id = $2
+          AND (status = 'PENDING' OR (status = 'PROCESSING' AND updated_at < NOW() - ${CLAIM_LEASE}))`,
+      [reviewerUsername, requestId],
+    );
+    if (claim.rowCount !== 1) {
+      throw new ConflictException('Yêu cầu đang được người khác xử lý hoặc đã được xử lý');
+    }
+    try {
+      return await this.completeApproval(requestId, req, reviewerUsername, grantedPermission);
+    } catch (err) {
+      // Không cấp được: trả yêu cầu về CHỜ DUYỆT để thử lại sau
+      await this.pool
+        .query(`UPDATE access_request SET status = 'PENDING', reviewed_by = NULL, updated_at = NOW() WHERE request_id = $1 AND status = 'PROCESSING'`, [requestId])
+        .catch((e) => this.logger.error(`Không trả được yêu cầu [${requestId}] về PENDING: ${e.message}`));
+      throw err;
+    }
+  }
+
+  private async completeApproval(requestId: number, req: any, reviewerUsername: string, grantedPermission?: 'VIEW' | 'DOWNLOAD') {
     const finalPermission: 'VIEW' | 'DOWNLOAD' = grantedPermission || (req.requested_permission === 'DOWNLOAD' ? 'DOWNLOAD' : 'VIEW');
     const expiresAt = new Date(Date.now() + (Number(req.requested_days) || 7) * 24 * 60 * 60 * 1000);
 
@@ -239,12 +269,16 @@ export class ShareService {
       throw new ServiceUnavailableException(`Không gọi được node ${owner.dept_code} để cấp quyền: ${err.message}. Yêu cầu vẫn chờ duyệt.`);
     }
 
-    await this.pool.query(
+    const done = await this.pool.query(
       `UPDATE access_request
           SET status = 'APPROVED', reviewed_by = $1, reviewed_at = NOW(), updated_at = NOW()
-        WHERE request_id = $2 AND status = 'PENDING'`,
+        WHERE request_id = $2 AND status = 'PROCESSING' AND reviewed_by = $1`,
       [reviewerUsername, requestId],
     );
+    if (done.rowCount !== 1) {
+      // Giữ chỗ đã quá hạn và người khác đã nhận lại. Quyền ở node vẫn đúng (idempotent); không gửi thông báo trùng.
+      throw new ConflictException('Yêu cầu đã được người khác hoàn tất trong lúc đang xử lý');
+    }
 
     await this.cacheService.invalidateSearchCache();
     this.notifications.publish({
@@ -269,17 +303,23 @@ export class ShareService {
 
     const req = check.rows[0];
     this.assertCanReview(req, actor);
+    if (req.status === 'PROCESSING') {
+      throw new ConflictException('Yêu cầu đang được người khác xử lý, vui lòng tải lại sau ít phút');
+    }
     if (req.status !== 'PENDING') {
       throw new BadRequestException(`Yêu cầu này đã được xử lý trước đó (Trạng thái: ${req.status})`);
     }
 
-    await this.pool.query(
+    const rejected = await this.pool.query(
       `UPDATE access_request
        SET status = 'REJECTED', reviewed_by = $1, reviewed_at = NOW(), updated_at = NOW(),
            reason = CASE WHEN $2 != '' THEN reason || ' [Lý do từ chối: ' || $2 || ']' ELSE reason END
-       WHERE request_id = $3`,
+       WHERE request_id = $3 AND status = 'PENDING'`,
       [reviewerUsername, rejectReason, requestId],
     );
+    if (rejected.rowCount !== 1) {
+      throw new ConflictException('Yêu cầu đang được người khác xử lý hoặc đã được xử lý');
+    }
 
     this.notifications.publish({
       type: 'ACCESS_REJECTED',

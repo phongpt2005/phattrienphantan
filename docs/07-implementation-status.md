@@ -122,6 +122,26 @@ Thay đổi giao diện kèm theo: thanh bên, tiêu đề và bảng lệnh Ctr
 | Node sập oan sau khi Registry khởi động lại | Bị đánh dấu `DEGRADED` | Ân hạn 65 giây, 0 sự cố giả |
 | Chuỗi audit khi ghi đồng thời | Báo đứt oan; HR có 1 nhánh rẽ thật | Thứ tự theo `chain_seq` cấp trong khóa; 200 lần ghi đồng thời vẫn nguyên; sửa lén vẫn bị phát hiện |
 
+## 2k. Gói P0 (ổn định trước khi làm Gói B, 2026-11-19)
+
+Thứ tự theo quyết định Q4: N5 → N1 → N7 → đóng cổng. Mỗi mục có bằng chứng chạy thật.
+
+| Mục | Nội dung | Kết quả |
+|---|---|---|
+| P0.1 Đua duyệt yêu cầu | Giữ chỗ nguyên tử `PENDING → PROCESSING` (chỉ một người đi tiếp), gọi node, rồi `APPROVED`; lỗi thì trả về `PENDING`; giữ chỗ quá 2 phút được nhận lại | `approval-race-test.sh` với 8 người duyệt đồng thời: 1 lần 201, 7 lần 409; node chỉ có 1 lượt đang hiệu lực. Nhánh xác định (yêu cầu đang PROCESSING bị 409): đạt. **6/6** |
+| P0.2 Sao lưu ngoài máy | `backup-offsite.sh`: pg_dump của HR, ACC, SALES, trung tâm (nén gzip) và thư mục `/data` của MinIO, ghi vào `OneDrive\dms_backups\<thời điểm>`, kèm manifest SHA-256 và số liệu đối soát | Bản `20261119_031054`: 4 CSDL + 3 MinIO, đủ tệp và hash |
+| P0.2 Kiểm khôi phục | `restore-test.sh`: kiểm hash, khôi phục vào DB tạm rồi xóa, đối soát với manifest | **21/21**, RTO 37 giây |
+| P0.3 Đo độ trễ hàng đợi | Thêm `kafka-exporter` v1.7.0 (chỉ trong mạng nội bộ) và scrape job `kafka-exporter:9308` | Có metric `kafka_consumergroup_lag` (36 dòng khớp) |
+| P0.4 Đóng cổng | Bỏ publish CSDL (6), MinIO (2), Redis, Kafka, Debezium và node ACC; Grafana, Prometheus, Jaeger chỉ bind `127.0.0.1` | `docker ps`: chỉ `nginx :8000` và `hr-site-edge :3001` mở ra ngoài |
+
+**Hồi quy sau P0:** `e2e-smoke.sh` 96/96, 0 lỗi (Warm SLA 140 ms, Cold 1370 ms).
+
+**Ghi chú và các điểm đã phát hiện khi làm P0:**
+- Số liệu đối soát trong manifest được đọc **sau** khi dump. Nếu có ghi dữ liệu xen giữa, hai số có thể lệch. Restore-test sẽ bắt được lệch đó; nên chạy sao lưu khi hệ thống ít ghi.
+- Một yêu cầu duyệt cho tài liệu đã được chia sẻ cho cùng phòng sẽ **cập nhật** lượt đang hiệu lực (đổi quyền, gia hạn) chứ không tạo lượt mới. Trung tâm vẫn ghi APPROVED đúng, nhưng node giữ `access_request_id` của yêu cầu cũ: mất liên kết truy vết giữa lượt chia sẻ và yêu cầu mới nhất. Đề xuất: bảng lịch sử `document_share_event` (chưa làm).
+- `test-enterprise-resilience.js` đã từng có mật khẩu CSDL HR viết cứng trong mã nguồn, và file này đã nằm trong commit. Đã thay bằng biến `HR_NODE_DB_URL`. **Nên xoay mật khẩu đó** trước khi đẩy repo lên đâu.
+- Đã đóng cổng node ACC: trước đây node có thể bị gọi thẳng, bỏ qua gateway.
+
 ## 2j. Thu hồi token ngay lập tức (2026-11-19)
 
 Thiết kế: [ADR-013](05-adr/ADR-013-token-revocation.md). Kiểm thử: `infrastructure/scripts/revoke-test.sh`.

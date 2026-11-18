@@ -108,7 +108,7 @@ async function run() {
   console.log('   -> Kiểm tra kết nối đến PostgreSQL HR Replica (cổng 5436)...');
   const { Client } = require('pg');
   const replicaClient = new Client({
-    connectionString: 'postgresql://hr_admin:Xk9mNvL2qRzT7pWsEc3@localhost:5436/dms_hr'
+    connectionString: process.env.HR_NODE_DB_URL  // Không viết mật khẩu trong mã nguồn; đặt biến môi trường trước khi chạy
   });
   await replicaClient.connect();
   const replicaCount = await replicaClient.query('SELECT count(*) FROM document WHERE status != \'DELETED\'');

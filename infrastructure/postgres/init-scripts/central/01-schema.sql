@@ -191,6 +191,10 @@ CREATE TABLE IF NOT EXISTS access_request (
     requested_permission VARCHAR(20)   DEFAULT 'VIEW',
     CONSTRAINT chk_request_status CHECK (status IN ('PENDING', 'APPROVED', 'REJECTED', 'CANCELLED'))
 );
+-- P0.1: trạng thái giữ chỗ PROCESSING chống duyệt đồng thời (Expand: chỉ thêm giá trị)
+ALTER TABLE access_request DROP CONSTRAINT IF EXISTS chk_request_status;
+ALTER TABLE access_request ADD CONSTRAINT chk_request_status
+    CHECK (status IN ('PENDING', 'PROCESSING', 'APPROVED', 'REJECTED', 'CANCELLED'));
 CREATE INDEX IF NOT EXISTS idx_access_req_target ON access_request(target_dept, status);
 CREATE INDEX IF NOT EXISTS idx_access_req_doc    ON access_request(central_doc_id);
 
