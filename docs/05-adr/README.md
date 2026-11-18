@@ -16,3 +16,4 @@ Mỗi ADR theo định dạng: **Bối cảnh → Quyết định → Phương �
 | [ADR-010](ADR-010-central-index-is-optional.md) | Chỉ mục trung tâm là thành phần tùy chọn trên đường tìm kiếm | Accepted |
 | [ADR-011](ADR-011-share-ledger-at-owner-node.md) | Sổ chia sẻ nằm tại node của phòng chủ tài liệu | Accepted |
 | [ADR-012](ADR-012-autonomous-offline-and-convergence.md) | Phòng ban tự trị khi đứt mạng và tự hội tụ khi phục hồi | Accepted |
+| [ADR-013](ADR-013-token-revocation.md) | Thu hồi token ngay lập tức ở gateway (token_version + khóa Redis) | Accepted |

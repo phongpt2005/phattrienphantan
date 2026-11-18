@@ -7,6 +7,8 @@ export interface JwtPayload {
   role: UserRole;
   /** Mã phòng ban của node đã cấp token, ví dụ 'HR', 'ACC', 'SALES'... (không còn giới hạn 2 giá trị) */
   departmentCode: string;
+  /** Phiên bản thu hồi lúc cấp token (mặc định 0 với token cũ). Xem thu hồi token ở ADR-013. */
+  tv?: number;
 }
 
 export interface AuthenticatedUser extends JwtPayload {}

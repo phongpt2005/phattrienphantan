@@ -42,6 +42,8 @@ model LocalUser {
   passwordHash      String?            @map("password_hash") @db.VarChar(255)
   role              String             @default("STAFF") @db.VarChar(20)
   status            String             @default("ACTIVE") @db.VarChar(10)
+  /// Tăng khi thu hồi token. JWT mang giá trị lúc cấp; gateway từ chối token có tv nhỏ hơn giá trị đã thu hồi.
+  tokenVersion      Int                @default(0) @map("token_version")
   documents         Document[]         @relation("DocumentCreator")
   documentVersions  DocumentVersion[]  @relation("VersionCreator")
   accessPermissions AccessPermission[]

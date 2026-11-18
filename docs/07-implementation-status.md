@@ -122,6 +122,20 @@ Thay đổi giao diện kèm theo: thanh bên, tiêu đề và bảng lệnh Ctr
 | Node sập oan sau khi Registry khởi động lại | Bị đánh dấu `DEGRADED` | Ân hạn 65 giây, 0 sự cố giả |
 | Chuỗi audit khi ghi đồng thời | Báo đứt oan; HR có 1 nhánh rẽ thật | Thứ tự theo `chain_seq` cấp trong khóa; 200 lần ghi đồng thời vẫn nguyên; sửa lén vẫn bị phát hiện |
 
+## 2j. Thu hồi token ngay lập tức (2026-11-19)
+
+Thiết kế: [ADR-013](05-adr/ADR-013-token-revocation.md). Kiểm thử: `infrastructure/scripts/revoke-test.sh`.
+
+| Nội dung | Kết quả |
+|---|---|
+| Phiên bản token | Cột `local_user.token_version` (Expand, mặc định 0) đã thêm vào CSDL HR, ACC, SALES; JWT mang `tv` |
+| Thu hồi | `POST /api/dept/<mã>/auth/users/:userId/revoke`: Trưởng phòng và Ban Giám đốc; Trưởng phòng không thu hồi được token Ban Giám đốc (403) |
+| Thực thi ở gateway | Token bị thu hồi nhận 401 ngay (kiểm thử: 401 ngay sau khi thu hồi) |
+| Đăng nhập lại | Token mới được chấp nhận (200) |
+| Đường nội bộ node | Token đã thu hồi vẫn nhận 200 trên `/api/dept/hr/...` tới khi hết hạn 8 giờ (đánh đổi đã chọn) |
+| Redis lỗi | Thu hồi trả 503 và không báo thành công; gateway cho qua và ghi cảnh báo (fail-open) |
+| Hồi quy e2e-smoke | 96/96, 0 lỗi (Warm SLA 143 ms, Cold 1288 ms) |
+
 ## 2i. Cụm node HA và nâng cấp luân phiên (feature 4, 2026-11-18)
 
 | Nội dung | Kết quả |

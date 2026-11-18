@@ -26,6 +26,10 @@ x-department-env: &department-env
   DEMO_ADMIN_PASSWORD: ${DEMO_ADMIN_PASSWORD:-}
   DEMO_MANAGER_PASSWORD: ${DEMO_MANAGER_PASSWORD:-}
   DEMO_STAFF_PASSWORD: ${DEMO_STAFF_PASSWORD:-}
+  # Redis chỉ dùng để ghi khóa thu hồi token (tv:<phòng>:<userId>); không dùng cho đọc/ghi nghiệp vụ
+  REDIS_HOST: redis
+  REDIS_PORT: 6379
+  REDIS_PASSWORD: ${REDIS_PASSWORD}
 
 # Một image duy nhất cho MỌI phòng ban; DEPT_CODE + DATABASE_URL + MINIO_* quyết định phòng ban.
 x-department-service: &department-service

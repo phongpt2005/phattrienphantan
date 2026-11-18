@@ -1,4 +1,4 @@
-import { Controller, Post, Get, Body, Req, UseGuards, ValidationPipe } from '@nestjs/common';
+import { Controller, Post, Get, Body, Param, Req, UseGuards, ValidationPipe, BadRequestException } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { Request } from 'express';
 import { AuthService } from './auth.service';
@@ -20,6 +20,16 @@ export class AuthController {
   @Roles('ADMIN')
   async register(@Body(new ValidationPipe({ transform: true })) dto: RegisterDto) {
     return this.authService.register(dto);
+  }
+
+  /** Thu hồi token của một người dùng cùng phòng. Trưởng phòng và Ban Giám đốc. */
+  @Post('users/:userId/revoke')
+  @UseGuards(AuthGuard('jwt'), DepartmentGuard, RolesGuard)
+  @Roles('ADMIN', 'MANAGER')
+  async revokeUserTokens(@Param('userId') userId: string, @Req() req: Request) {
+    const id = Number(userId);
+    if (!Number.isSafeInteger(id) || id <= 0) throw new BadRequestException('userId không hợp lệ');
+    return this.authService.revokeTokens(id, req.user as any);
   }
 
   @Get('profile')

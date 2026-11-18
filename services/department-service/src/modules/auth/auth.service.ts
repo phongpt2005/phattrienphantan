@@ -1,7 +1,8 @@
-import { Injectable, UnauthorizedException, BadRequestException, Logger } from '@nestjs/common';
+import { Injectable, UnauthorizedException, BadRequestException, ForbiddenException, NotFoundException, ServiceUnavailableException, Logger } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { PrismaClient } from '@dms/database';
 import { comparePassword, hashPassword, JwtPayload, sanitizeBigInt, requireEnv } from '@dms/common';
+import { RevocationService } from './revocation.service';
 
 @Injectable()
 export class AuthService {
@@ -10,7 +11,40 @@ export class AuthService {
   constructor(
     private readonly prisma: PrismaClient,
     private readonly jwtService: JwtService,
+    private readonly revocation: RevocationService,
   ) {}
+
+  /**
+   * Thu hồi mọi token đang có của một người dùng trong phòng này (ngay lập tức ở gateway).
+   * Thứ tự: tăng token_version trong CSDL node -> ghi khóa Redis. Redis lỗi thì báo lỗi (không báo thành công);
+   * khi thử lại, phiên bản tăng tiếp và khóa được ghi lại.
+   */
+  async revokeTokens(targetUserId: number, actor: JwtPayload) {
+    const deptCode = requireEnv('DEPT_CODE');
+    const target = await this.prisma.localUser.findUnique({
+      where: { userId: BigInt(targetUserId) },
+      select: { username: true, role: true },
+    });
+    if (!target) throw new NotFoundException('Không tìm thấy người dùng');
+    if (actor.role === 'MANAGER' && target.role === 'ADMIN') {
+      throw new ForbiddenException('Trưởng phòng không thu hồi token của Ban Giám đốc');
+    }
+
+    const updated = await this.prisma.localUser.update({
+      where: { userId: BigInt(targetUserId) },
+      data: { tokenVersion: { increment: 1 } },
+      select: { tokenVersion: true },
+    });
+    const minValidVersion = Number(updated.tokenVersion);
+    try {
+      await this.revocation.publish(deptCode, targetUserId, minValidVersion);
+    } catch (err) {
+      this.logger.error(`Không ghi được khóa thu hồi cho user ${targetUserId}: ${err.message}`);
+      throw new ServiceUnavailableException('Chưa thu hồi được token (không ghi được Redis). Vui lòng thử lại.');
+    }
+    this.logger.warn(`Đã thu hồi token của "${target.username}" tại [${deptCode}] (tối thiểu v${minValidVersion}) bởi "${actor.username}"`);
+    return { revokedUserId: targetUserId, username: target.username, departmentCode: deptCode, minValidVersion };
+  }
 
   async login(username: string, plainTextPassword: string) {
     const user = await this.prisma.localUser.findUnique({
@@ -43,6 +77,7 @@ export class AuthService {
       fullName: user.fullName,
       role: user.role as any,
       departmentCode: deptCode,
+      tv: Number(user.tokenVersion),
     };
 
     const token = this.jwtService.sign(payload);

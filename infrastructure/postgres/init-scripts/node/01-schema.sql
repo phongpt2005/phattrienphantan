@@ -297,3 +297,6 @@ WHERE NOT EXISTS (SELECT 1 FROM category);
 INSERT INTO local_user (username, full_name, email, role, status)
 SELECT 'admin', 'Administrator', 'admin@company.local', 'ADMIN', 'ACTIVE'
 WHERE NOT EXISTS (SELECT 1 FROM local_user WHERE username = 'admin');
+
+-- Feature 4b: thu hồi token (Expand: thêm cột có DEFAULT, không đổi cột cũ)
+ALTER TABLE local_user ADD COLUMN IF NOT EXISTS token_version INT NOT NULL DEFAULT 0;
