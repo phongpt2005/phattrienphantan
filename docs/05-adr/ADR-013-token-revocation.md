@@ -1,6 +1,6 @@
 # ADR-013: Thu hồi token ngay lập tức ở gateway
 
-**Trạng thái:** Accepted (đã triển khai và kiểm thử bằng `infrastructure/scripts/revoke-test.sh`: 9/9)
+**Trạng thái:** Accepted (đã triển khai và kiểm thử bằng `infrastructure/scripts/revoke-test.sh`: 16/16)
 **Liên quan:** ADR-004 (Registry), ADR-011 (sổ chia sẻ tại node chủ)
 
 ## Bối cảnh

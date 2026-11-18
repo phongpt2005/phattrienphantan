@@ -130,7 +130,7 @@ Thiết kế: [ADR-013](05-adr/ADR-013-token-revocation.md). Kiểm thử: `infr
 |---|---|
 | Phiên bản token | Cột `local_user.token_version` (Expand, mặc định 0) đã thêm vào CSDL HR, ACC, SALES; JWT mang `tv` |
 | Thu hồi | `POST /api/dept/<mã>/auth/users/:userId/revoke`: Trưởng phòng và Ban Giám đốc; Trưởng phòng không thu hồi được token Ban Giám đốc (403) |
-| Thực thi ở gateway | Token bị thu hồi nhận 401 ngay (kiểm thử: 401 ngay sau khi thu hồi) |
+| Thực thi ở gateway | Token bị thu hồi nhận 401 ngay ở tìm kiếm, danh sách chia sẻ và tải tệp liên phòng (16/16 kiểm tra) |
 | Đăng nhập lại | Token mới được chấp nhận (200) |
 | Đường nội bộ node | Token đã thu hồi vẫn nhận 200 trên `/api/dept/hr/...` tới khi hết hạn 8 giờ (đánh đổi đã chọn) |
 | Redis lỗi | Thu hồi trả 503 và không báo thành công; gateway cho qua và ghi cảnh báo (fail-open) |
