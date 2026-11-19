@@ -685,9 +685,11 @@ services:
       CONNECT_URL: http://debezium:8083
       REPL_USER: ${POSTGRES_REPLICATION_USER}
       REPL_PASSWORD: ${POSTGRES_REPLICATION_PASSWORD}
+      REPL_PASSWORD_SALES: ${DEPT_REPL_PASSWORD_SALES:-}
       INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN}
       RESYNC_AFTER_REGISTER: "true"
-      CONNECTORS: "HR:postgres-hr-primary:${POSTGRES_HR_DB},ACC:postgres-acc-primary:${POSTGRES_ACC_DB}"
+      # SALES: node riêng (dept-sales-db, DB dms_sales). Thiếu dòng này thì thay đổi của SALES không tới CDC.
+      CONNECTORS: "HR:postgres-hr-primary:${POSTGRES_HR_DB},ACC:postgres-acc-primary:${POSTGRES_ACC_DB},SALES:dept-sales-db:dms_sales"
     volumes:
       - ./infrastructure/debezium/register-connectors.sh:/register-connectors.sh:ro
       - ./infrastructure/debezium/connector-template.json:/connector-template.json:ro

@@ -142,6 +142,17 @@ Thay đổi giao diện kèm theo: thanh bên, tiêu đề và bảng lệnh Ctr
 
 **Kết quả cuối:** `e2e-smoke.sh` 96/96, 0 lỗi (Warm SLA 169 ms, Cold 1445 ms).
 
+## 2m. Sửa CDC cho SALES và trạng thái P1 (2026-11-19)
+
+| Mục | Nội dung | Kết quả đã kiểm chứng |
+|---|---|---|
+| CDC cho SALES | `connect-init` thiếu SALES, nên không có connector `outbox-sales`. Slot `dbz_sales_outbox` không hoạt động và giữ 10 MB WAL, 5 sự kiện chưa gửi. Đã thêm `SALES:dept-sales-db:dms_sales`, và mật khẩu replication riêng theo phòng (`REPL_PASSWORD_<MÃ>`) | Connector RUNNING; slot active; WAL còn 288 byte; topic `dms.dept.sales.document` có; số tài liệu SALES ở trung tâm khớp node (1 = 1) |
+| Resync phụ thuộc MinIO | Khi `minio-hr` dừng, resync của HR trả HTTP 500 (`getaddrinfo ... minio-hr`). Đã kiểm chứng: khi MinIO khỏe, resync trả 289 | Ghi nhận như một lỗ hổng thiết kế; cần sửa để resync không đọc MinIO |
+| Kafka không lưu log vào volume | Log thật nằm ở `/tmp/kafka-logs` trong container; volume `dms-kafka-data` trống. Mỗi lần tạo lại container Kafka làm mất topic. Đã sao lưu log hiện tại (1,9 GB) ra scratchpad | Ảnh hưởng trực tiếp đến cutover P1 (xem `docs/11`) |
+| Hồi quy | `e2e-smoke.sh` sau thay đổi | 96/96, 0 lỗi |
+
+**P1:** đã chuẩn bị runbook đã hiệu chỉnh tại [docs/11-p1-kafka-cutover.md](11-p1-kafka-cutover.md). **Chưa thi công**: RAM trống của Windows chỉ khoảng 0,8 GB trên 15,6 GB, chưa đủ cho 3 broker. Cần bạn giải phóng RAM và chọn cửa sổ bảo trì (~10 phút).
+
 ## 2k. Gói P0 (ổn định trước khi làm Gói B, 2026-11-19)
 
 Thứ tự theo quyết định Q4: N5 → N1 → N7 → đóng cổng. Mỗi mục có bằng chứng chạy thật.

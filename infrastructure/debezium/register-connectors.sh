@@ -34,12 +34,16 @@ echo "$CONNECTORS" | tr ',' '\n' | while IFS=: read -r code host db; do
   [ -z "$code" ] && continue
   lc=$(printf '%s' "$code" | tr 'A-Z' 'a-z')
   name="outbox-${lc}"
+  # Mật khẩu replication riêng của phòng (ví dụ SALES): REPL_PASSWORD_<MÃ>, nếu không có thì dùng REPL_PASSWORD chung
+  uc=$(printf '%s' "$code" | tr 'a-z' 'A-Z')
+  eval "pw_override=\${REPL_PASSWORD_${uc}:-}"
+  pw="${pw_override:-$REPL_PASSWORD}"
   body=$(sed \
     -e "s|__CODE_LC__|$(esc "$lc")|g" \
     -e "s|__DB_HOST__|$(esc "$host")|g" \
     -e "s|__DB_NAME__|$(esc "$db")|g" \
     -e "s|__REPL_USER__|$(esc "$REPL_USER")|g" \
-    -e "s|__REPL_PASSWORD__|$(esc "$REPL_PASSWORD")|g" \
+    -e "s|__REPL_PASSWORD__|$(esc "$pw")|g" \
     "$TEMPLATE")
   code_http=$(printf '%s' "$body" | curl -sS -o /tmp/resp.txt -w '%{http_code}' -X PUT \
     -H 'Content-Type: application/json' --data-binary @- "${CONNECT_URL}/connectors/${name}/config")
