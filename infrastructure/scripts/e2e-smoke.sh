@@ -189,7 +189,8 @@ N1=$(curl -s --get http://127.0.0.1:9090/api/v1/query --data-urlencode 'query=su
 sleep 12
 N2=$(curl -s --get http://127.0.0.1:9090/api/v1/query --data-urlencode 'query=sum(dms_content_jobs_total{status="indexed"})' | jget data.result.0.value.1)
 check "worker không tự xử lý lặp lại sự kiện do chính nó gây ra" "$N2" "$N1"
-check "dừng node HR: dự phòng Central Index KHÔNG chứa nội dung tệp (nội dung không rời node)" "$(stop_node hr; sleep 1; search "$EXEC" "$TOKEN_TXT" | jget total; start_node hr)" 0
+# Node HR có hai bản (dept-hr, dept-hr-2) cùng alias: chỉ dừng một bản thì bản còn lại vẫn trả lời, nên phải dừng CẢ HAI
+check "dừng cả hai bản node HR: dự phòng Central Index KHÔNG chứa nội dung tệp (nội dung không rời node)" "$(docker stop dept-hr dept-hr-2 >/dev/null; sleep 1; search "$EXEC" "$TOKEN_TXT" | jget total; docker start dept-hr dept-hr-2 >/dev/null)" 0
 settle
 for i in $(seq 1 40); do [ "$(search "$HR_MGR" "" --data-urlencode "limit=1" | jget partial)" = false ] && break; sleep 2; done
 
@@ -288,18 +289,25 @@ check "phản hồi báo rõ chế độ suy giảm của chỉ mục trung tâm
 # Mỗi bản Gateway tự phát hiện trung tâm sập ở lần truy vấn ĐẦU TIÊN của nó (mạch ngắt riêng từng bản, tối đa 1,2 giây chờ kết nối),
 # nên "cold" phải đo cho TỪNG bản: gửi 3 truy vấn cho mỗi bản (một bản có thể trả giá tới hai lần chờ: đọc danh bạ và làm giàu kết quả) rồi lấy lần chậm nhất.
 REPLICAS=$(docker compose ps -q search-engine-service | wc -l | tr -d ' ')
-COLD_MS=0
+# Đo bằng time_total của curl TRONG MỘT tiến trình (không fork date/curl riêng cho mỗi lần đo: trên máy thiếu RAM việc fork chậm, làm lệch số đo).
+# Trả về "mã_HTTP mili_giây"; lưu thân phản hồi để in tookMs từng node khi vượt ngưỡng.
+search_ms() { curl -s -o "$2" -w '%{http_code} %{time_total}' -H "Authorization: Bearer $1" --get "$BASE/api/search" --data-urlencode "q=hop dong $RANDOM" | awk '{printf "%s %d", $1, $2*1000}'; }
+COLD_MS=0; NONOK=0
 for i in $(seq 1 $(( REPLICAS * 3 ))); do
-  T0=$(date +%s%N); search "$HR_MGR" "hop dong $RANDOM" >/dev/null; D=$(( ($(date +%s%N)-T0)/1000000 ))
+  read -r C D <<< "$(search_ms "$HR_MGR" "$WTMP/cold_$i.json")"
+  [ "$C" = 200 ] || NONOK=$((NONOK+1))
   [ "$D" -gt "$COLD_MS" ] && COLD_MS=$D
 done
 [ "$COLD_MS" -le "$COLD_SLA_MS" ] && ok "Cold SLA: lần đầu của từng bản Gateway sau khi trung tâm sập, chậm nhất ${COLD_MS} ms (≤ ${COLD_SLA_MS} ms)" || bad "Cold SLA vượt: ${COLD_MS} ms (> ${COLD_SLA_MS} ms)"
-WARM_WORST=0
+WARM_WORST=0; WARM_BODY=""
 for i in 1 2 3 4 5; do
-  T0=$(date +%s%N); search "$HR_MGR" "hop dong $RANDOM" >/dev/null; W=$(( ($(date +%s%N)-T0)/1000000 ))
-  [ "$W" -gt "$WARM_WORST" ] && WARM_WORST=$W
+  read -r C W <<< "$(search_ms "$HR_MGR" "$WTMP/warm_$i.json")"
+  [ "$C" = 200 ] || NONOK=$((NONOK+1))
+  if [ "$W" -gt "$WARM_WORST" ]; then WARM_WORST=$W; WARM_BODY="$WTMP/warm_$i.json"; fi
 done
 [ "$WARM_WORST" -le "$WARM_SLA_MS" ] && ok "Warm SLA: 5 lần sau, chậm nhất ${WARM_WORST} ms (≤ ${WARM_SLA_MS} ms)" || bad "Warm SLA vượt: chậm nhất ${WARM_WORST} ms (> ${WARM_SLA_MS} ms)"
+[ "$WARM_WORST" -gt "$WARM_SLA_MS" ] && python -I -X utf8 -c "import json,sys;d=json.load(open(sys.argv[1]));print('    tookMs theo node:',[(n.get('code'),n.get('status'),n.get('tookMs')) for n in d.get('nodes',[])])" "$WARM_BODY" 2>/dev/null
+[ "$NONOK" -eq 0 ] && ok "Mọi truy vấn trong vòng đo SLA trả HTTP 200" || bad "Có $NONOK truy vấn trong vòng đo SLA không trả HTTP 200"
 check "cả hai bản Search Gateway vẫn sống" "$(docker compose ps -q search-engine-service | wc -l | tr -d ' ')" 2
 # Sổ chia sẻ nằm ở node chủ: trung tâm sập KHÔNG chặn cấp quyền, cũng KHÔNG chặn thu hồi
 SHC=$(curl -s -X POST $BASE/api/dept/hr/shares -H "Authorization: Bearer $HR_MGR" -H 'content-type: application/json' -d "{\"docId\":$DOC_ID,\"sharedWithDept\":\"ACC\",\"permission\":\"DOWNLOAD\",\"expiresInDays\":1}")

@@ -52,7 +52,11 @@ export class RegistryClientService implements OnApplicationBootstrap, OnApplicat
       body: JSON.stringify(payload),
       signal: AbortSignal.timeout(3000),
     });
-    if (!res.ok) throw new Error(`${path} -> HTTP ${res.status}`);
+    if (!res.ok) {
+      const err = new Error(`${path} -> HTTP ${res.status}`) as Error & { status: number };
+      err.status = res.status;
+      throw err;
+    }
   }
 
   onApplicationBootstrap() {
@@ -101,8 +105,15 @@ export class RegistryClientService implements OnApplicationBootstrap, OnApplicat
         await this.post('/registry/heartbeat', { code: this.code });
         this.lastCentralOkAt = Date.now();
       } catch (err) {
-        // Registry mất/khởi động lại: dừng heartbeat và đăng ký lại (một vòng duy nhất)
-        this.logger.warn(`Heartbeat lỗi (${err.message}), sẽ đăng ký lại`);
+        const status = (err as { status?: number }).status;
+        if (status !== 404) {
+          // Lỗi tạm thời: CSDL trung tâm lỗi (503), timeout hoặc mất kết nối. Registry vẫn giữ node trong CSDL nên nhịp tim sau sẽ được nhận.
+          // CHỈ đăng ký lại khi Registry trả 404 (không còn nhận diện node); đăng ký lại theo lỗi mạng chỉ tạo thêm lượt thử.
+          this.logger.warn(`Nhịp tim chưa gửi được (${(err as Error).message}), giữ heartbeat và thử lại sau ${interval / 1000} giây`);
+          return;
+        }
+        // Registry không còn nhận diện node (404): dừng heartbeat và đăng ký lại (một vòng duy nhất)
+        this.logger.warn(`Registry không còn nhận diện node (404), đăng ký lại`);
         this.registered = false;
         if (this.heartbeatTimer) clearInterval(this.heartbeatTimer);
         this.heartbeatTimer = null;

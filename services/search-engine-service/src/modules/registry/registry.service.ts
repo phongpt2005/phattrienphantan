@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, Logger, NotFoundException, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger, NotFoundException, OnModuleDestroy, OnModuleInit, ServiceUnavailableException } from '@nestjs/common';
 import { Pool } from 'pg';
 import { NotificationService } from '../notification/notification.service';
 import { SnapshotService } from '../snapshot/snapshot.service';
@@ -25,6 +25,21 @@ export interface RegisteredDepartment {
 }
 
 const CODE_PATTERN = /^[A-Z][A-Z0-9_]{1,19}$/;
+
+/** Số giây node nên chờ trước khi thử lại khi CSDL trung tâm tạm thời không sẵn sàng (đặt kèm Retry-After). */
+export const RETRY_AFTER_SEC = 5;
+
+/** Lỗi kết nối tới CSDL trung tâm (không phải lỗi dữ liệu). Cùng tiêu chí với Index Projector. */
+function isCentralUnavailable(err: unknown): boolean {
+  const e = err as { code?: unknown; message?: unknown };
+  const code = String(e?.code ?? '');
+  const msg = String(e?.message ?? '');
+  return (
+    ['ECONNREFUSED', 'ECONNRESET', 'ETIMEDOUT', 'EPIPE', 'ENOTFOUND', 'EAI_AGAIN'].includes(code) ||
+    /^(08|57P0|53300)/.test(code) ||
+    /terminating connection|Connection terminated|connection timeout|timeout exceeded|Client has encountered a connection error|the database system is (starting up|shutting down)|Query read timeout/i.test(msg)
+  );
+}
 
 /**
  * Department Registry: nguồn sự thật duy nhất về các phòng ban (R3).
@@ -112,7 +127,23 @@ export class RegistryService implements OnModuleInit, OnModuleDestroy {
     if (this.sweeper) clearInterval(this.sweeper);
   }
 
+  /** Đổi lỗi CSDL trung tâm thành 503 (node sẽ thử lại) và đánh dấu mạch ngắt để mọi nơi cùng ngừng thử. */
+  private toCentralError(err: unknown): unknown {
+    if (!isCentralUnavailable(err)) return err;
+    this.snapshots.markDown();
+    return new ServiceUnavailableException({ message: 'CSDL trung tâm đang tạm thời không sẵn sàng; thử lại sau', retryAfterSec: RETRY_AFTER_SEC });
+  }
+
+  /** Node đăng ký: lỗi CSDL trung tâm trả 503 thay vì 500 kèm stack trace. */
   async register(dto: RegisterDepartmentDto) {
+    try {
+      return await this.registerInner(dto);
+    } catch (err) {
+      throw this.toCentralError(err);
+    }
+  }
+
+  private async registerInner(dto: RegisterDepartmentDto) {
     const code = String(dto.code || '').toUpperCase();
     if (!CODE_PATTERN.test(code)) {
       throw new BadRequestException('Mã phòng ban không hợp lệ (A-Z, 0-9, _; bắt đầu bằng chữ; tối đa 20 ký tự)');
@@ -155,7 +186,16 @@ export class RegistryService implements OnModuleInit, OnModuleDestroy {
     return { departmentId: row.department_id, code, lifecycle: row.lifecycle, created: row.inserted };
   }
 
+  /** Nhịp tim: lỗi CSDL trung tâm trả 503 (node giữ nhịp tim, không đăng ký lại). */
   async heartbeat(code: string) {
+    try {
+      return await this.heartbeatInner(code);
+    } catch (err) {
+      throw this.toCentralError(err);
+    }
+  }
+
+  private async heartbeatInner(code: string) {
     const res = await this.pool.query(
       `UPDATE department d
           SET last_heartbeat_at = NOW(),

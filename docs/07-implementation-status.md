@@ -122,6 +122,30 @@ Thay đổi giao diện kèm theo: thanh bên, tiêu đề và bảng lệnh Ctr
 | Node sập oan sau khi Registry khởi động lại | Bị đánh dấu `DEGRADED` | Ân hạn 65 giây, 0 sự cố giả |
 | Chuỗi audit khi ghi đồng thời | Báo đứt oan; HR có 1 nhánh rẽ thật | Thứ tự theo `chain_seq` cấp trong khóa; 200 lần ghi đồng thời vẫn nguyên; sửa lén vẫn bị phát hiện |
 
+## 2o. Khi CSDL trung tâm lỗi: registry trả 503, node giữ nhịp tim (2026-11-20)
+
+Điều tra từ log thật: 42 dòng `ERROR ExceptionsHandler` đến từ `RegistryService.register` (34) và `heartbeat` (8), không có try/catch nên trả 500. Node coi mọi lỗi heartbeat là "mất registry", dừng heartbeat và đăng ký lại liên tục. Tìm kiếm không bị ảnh hưởng (không có 5xx trên `/api/search`).
+
+| Mục | Nội dung | Kết quả đã kiểm chứng |
+|---|---|---|
+| Registry trả 503 | `register` và `heartbeat` đổi lỗi kết nối trung tâm thành 503 kèm `Retry-After: 5`, đánh dấu mạch ngắt. Lỗi khác (404, 400) giữ nguyên | Kiểm riêng khi dừng trung tâm: heartbeat từ `dept-hr` và `dept-acc` đều nhận HTTP 503, `Retry-After: 5`. Log search sau sửa: 0 `ExceptionsHandler` (trước: 42) |
+| Node giữ nhịp tim | Mọi lỗi khác 404 (503, timeout, mất kết nối): giữ heartbeat, ghi cảnh báo ngắn. CHỈ đăng ký lại khi Registry trả 404 | Log node sau sửa: 2 dòng "nhịp tim chưa gửi được (HTTP 503)" mỗi node; 0 lần đăng ký lại; 0 lần đăng ký thất bại. Trước sửa: `dept-hr` có 114 lần đăng ký thất bại |
+| Đo SLA | Đo bằng `time_total` của curl trong một tiến trình (không fork `date` mỗi lần); kiểm HTTP 200 trong vòng đo; in `tookMs` từng node khi vượt ngưỡng | Lần 17: Cold 255 ms, Warm 184 ms, mọi truy vấn HTTP 200 |
+| Kiểm tra "dừng node HR" | Dừng cả hai bản `dept-hr` và `dept-hr-2` (cùng alias `dept-hr`, Feature 4). Trước đây chỉ dừng `dept-hr`, nên `dept-hr-2` vẫn trả nội dung tệp | Đã đo: dừng một bản thì `dept-hr-2` vẫn trả token có trong tệp (total 1). Kiểm tra đã sửa |
+
+**Hồi quy `e2e-smoke.sh` (chưa commit):**
+
+| Lần chạy | Kết quả | Ghi chú |
+|---|---|---|
+| Lần 15 (sau sửa registry/node/SLA) | 99 đạt, 1 lỗi | Lỗi ở kiểm tra "dừng node HR": kiểm tra giả định dừng một bản là đủ |
+| Lần 16 (sau sửa kiểm tra HR) | 100 đạt, 0 lỗi | Kiểm tra mới: dừng cả hai bản HR |
+| Lần 17 (sau sửa node: chỉ đăng ký lại khi 404) | 100 đạt, 0 lỗi | Cold 255 ms, Warm 184 ms |
+
+**Chưa xong và khoảng trống:**
+- Khi CSDL trung tâm lỗi, pool kết nối bị xếp hàng: một số heartbeat/đăng ký chờ quá 3 giây (timeout của node) trong lần chạy trước khi sửa node. Khả năng cao nguyên nhân là các ghi nền (lịch sử tìm kiếm, truy vấn giám sát) cùng chờ kết nối trung tâm. Chưa sửa; cần thiết kế riêng (không ghi nền khi trung tâm đang lỗi).
+- Kiểm tra e2e tổng là 100 (thêm một kiểm tra HTTP 200 trong vòng đo SLA).
+- Các mục còn mở từ mục 2n: dòng `dms.dept.legal.document:0` cũ trong CSDL, RAM cho P1, `KAFKA_LOG_DIRS`, `.dockerignore`.
+
 ## 2n. Gói P0.6: tự phục hồi tiến độ projector và đối soát (2026-11-19 → 2026-11-20)
 
 | Mục | Nội dung | Kết quả đã kiểm chứng |

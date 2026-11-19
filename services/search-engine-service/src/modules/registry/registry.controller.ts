@@ -1,6 +1,7 @@
-import { Body, Controller, Get, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Post, Res, ServiceUnavailableException, UseGuards } from '@nestjs/common';
+import { Response } from 'express';
 import { JwtAuthGuard, ServiceTokenGuard } from '@dms/common';
-import { RegisterDepartmentDto, RegistryService } from './registry.service';
+import { RETRY_AFTER_SEC, RegisterDepartmentDto, RegistryService } from './registry.service';
 
 @Controller('registry')
 export class RegistryController {
@@ -9,14 +10,14 @@ export class RegistryController {
   /** Node phòng ban tự đăng ký khi khởi động (service token). */
   @Post('register')
   @UseGuards(ServiceTokenGuard)
-  register(@Body() dto: RegisterDepartmentDto) {
-    return this.registry.register(dto);
+  register(@Body() dto: RegisterDepartmentDto, @Res({ passthrough: true }) res: Response) {
+    return withRetryAfter(res, () => this.registry.register(dto));
   }
 
   @Post('heartbeat')
   @UseGuards(ServiceTokenGuard)
-  heartbeat(@Body('code') code: string) {
-    return this.registry.heartbeat(code);
+  heartbeat(@Body('code') code: string, @Res({ passthrough: true }) res: Response) {
+    return withRetryAfter(res, () => this.registry.heartbeat(code));
   }
 
   @Post('deregister')
@@ -45,5 +46,15 @@ export class RegistryController {
   async listForLogin() {
     const all = await this.registry.listPublic();
     return all.map(({ code, name, available }) => ({ code, name, available }));
+  }
+}
+
+/** Khi CSDL trung tâm tạm thời không sẵn sàng (503): gắn Retry-After để node biết khi nào thử lại. */
+async function withRetryAfter<T>(res: Response, fn: () => Promise<T>): Promise<T> {
+  try {
+    return await fn();
+  } catch (err) {
+    if (err instanceof ServiceUnavailableException) res.setHeader('Retry-After', String(RETRY_AFTER_SEC));
+    throw err;
   }
 }
