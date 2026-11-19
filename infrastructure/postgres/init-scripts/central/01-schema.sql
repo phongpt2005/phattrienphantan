@@ -128,6 +128,8 @@ CREATE TABLE IF NOT EXISTS cdc_partition_progress (
     updated_at      TIMESTAMPTZ     NOT NULL DEFAULT NOW(),
     PRIMARY KEY (consumer_group, topic, partition_id)
 );
+-- P0.6.1: dấu vân tay bản ghi tại last_offset (phát hiện topic bị tạo lại). Expand: cột NULL, không đổi cột cũ.
+ALTER TABLE cdc_partition_progress ADD COLUMN IF NOT EXISTS last_fingerprint VARCHAR(64) NULL;
 
 -- ---------------------------------------------------------------- SEARCH_HISTORY
 CREATE TABLE IF NOT EXISTS search_history (

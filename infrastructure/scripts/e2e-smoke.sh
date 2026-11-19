@@ -364,6 +364,22 @@ check "SALES hồi phục: isPartial trở lại False" "$(curl -s -H "Authoriza
 for sid in $(curl -s $BASE/api/dept/hr/shares -H "Authorization: Bearer $HR_MGR" | python -I -c "import json,sys; print(' '.join(str(x['share_id']) for x in json.load(sys.stdin) if str(x['source_doc_id'])=='$DOC_ID'))"); do curl -s -X DELETE $BASE/api/dept/hr/shares/$sid -H "Authorization: Bearer $HR_MGR" >/dev/null; done
 settle
 
+echo "== 15. CDC cho SALES: tài liệu tạo ở node SALES phải vào CHỈ MỤC TRUNG TÂM (P0.6.4) =="
+SALES_STAFF=$(login sales "sales_staff" "$DEMO_STAFF_PASSWORD")
+SALES_TS=$(date +%s%N)
+SALES_TITLE="sales cdc e2e $SALES_TS"
+printf 'noi dung sales %s\n' "$SALES_TS" > "$TMP/sales.txt"
+SCODE=$(curl -s -o "$WTMP/sales_doc.json" -w '%{http_code}' -X POST "$BASE/api/dept/sales/documents" -H "Authorization: Bearer $SALES_STAFF" -F "title=$SALES_TITLE" -F "description=kiem thu CDC sales" -F "accessLevel=DEPARTMENT" -F "file=@$WTMP/sales.txt;type=text/plain")
+check "tạo tài liệu tại node SALES (HTTP $SCODE)" "$SCODE" 201
+SN=0
+for i in $(seq 1 30); do
+  SN=$(docker exec postgres-central-primary psql -U "$POSTGRES_CENTRAL_USER" -d "$POSTGRES_CENTRAL_DB" -tAc "select count(*) from search_document s join department d using(department_id) where d.dept_code='SALES' and s.title='$SALES_TITLE'" 2>/dev/null | tr -d '[:space:]')
+  [ "$SN" = 1 ] && break
+  sleep 1
+done
+check "CDC SALES: tài liệu có trong CHỈ MỤC TRUNG TÂM trong 30 giây (không chỉ tìm trực tiếp trên node)" "$SN" 1
+check "tìm liên phòng qua API Gateway thấy tài liệu SALES" "$(search "$SALES_STAFF" "$SALES_TITLE" | jget total)" 1
+
 rm -rf "$TMP"
 echo; echo "===== KẾT QUẢ: $PASS đạt, $FAIL lỗi ====="
 [ "$FAIL" -eq 0 ]

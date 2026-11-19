@@ -122,6 +122,44 @@ Thay đổi giao diện kèm theo: thanh bên, tiêu đề và bảng lệnh Ctr
 | Node sập oan sau khi Registry khởi động lại | Bị đánh dấu `DEGRADED` | Ân hạn 65 giây, 0 sự cố giả |
 | Chuỗi audit khi ghi đồng thời | Báo đứt oan; HR có 1 nhánh rẽ thật | Thứ tự theo `chain_seq` cấp trong khóa; 200 lần ghi đồng thời vẫn nguyên; sửa lén vẫn bị phát hiện |
 
+## 2n. Gói P0.6: tự phục hồi tiến độ projector và đối soát (2026-11-19 → 2026-11-20)
+
+| Mục | Nội dung | Kết quả đã kiểm chứng |
+|---|---|---|
+| P0.6.1 Tự phục hồi tiến độ bằng dấu vân tay | Mỗi bản ghi có dấu vân tay (băm topic, partition, offset, khóa, timestamp và giá trị), lưu cùng tiến độ trong một transaction. Khi khởi động: B1 kiểm khoảng offset (tiến độ ≥ log-end, tiến độ < log-start, thiếu dấu vân tay thì đọc lại từ log-start); B2 đọc lại đúng bản ghi tại tiến độ rồi so dấu vân tay: khớp thì tiếp tục từ tiến độ + 1 và commit offset, không khớp thì đọc lại từ log-start và ghi cảnh báo WARN | `projector-epoch-test.sh` **18/18**, mã thoát 0, sau khi sửa (b). Ca 1 và ca 2 là mô phỏng |
+| P0.6.2 Resync không phụ thuộc MinIO | Khi `minio-hr` dừng, `POST /internal/resync` trả HTTP 201 (trước đây HTTP 500) | Đã kiểm trước đó, `replayed` 294. Không chạy lại trong P0.6 |
+| P0.6.3 Sao lưu chưa mã hóa | Thư mục `20261119_031054` đã chuyển khỏi OneDrive | Kiểm lại: không còn trong OneDrive. Chưa kiểm nội dung Thùng rác |
+| P0.6.4 CDC SALES trong e2e | Mục 15 của `e2e-smoke.sh`: tạo tài liệu tại node SALES, vào chỉ mục trung tâm trong 30 giây, tìm liên phòng thấy | 3/3 đạt ở cả hai lần e2e sau (b) |
+
+**Quyết định kỹ thuật (đã chốt theo đề xuất):**
+- **(a) Không làm.** kafkajs 2.2.4 dừng xử lý batch khi có seek đang chờ (`runner.js:226`) và áp dụng seek trước lần fetch kế tiếp (`consumerGroup.js:454, 660`), nên không cần re-seek.
+- **(b) Đã làm.** Nhánh khớp dấu vân tay commit `offset + 1` (`projector.service.ts`, trong `handle()`). Kiểm chứng: đặt offset nhóm của HR p2 lùi về 1250 (log-end 1254), khởi động lại: khớp tại 1253, offset nhóm về 1254, lag 0. Partition này không có tin sau 1253, nên chỉ nhánh khớp mới commit được lên 1254.
+- **(c) Chấp nhận có giới hạn.** Ca 2 ghi đè dấu vân tay để mô phỏng. Hàm so khớp vẫn chạy trên bản ghi thật tại offset thật. Chưa kiểm tạo lại topic thật, vì làm trên cụm đang chạy sẽ xóa log.
+
+**Lỗi trong bộ test đã sửa:**
+- Kỳ vọng "7 partition" ghi cứng → đếm từ CSDL. Lúc này là 8, vì e2e đã ghi tài liệu SALES vào partition thứ hai.
+- Lag đếm partition chưa có tin (LAG `-`) là lag khác 0 → bỏ qua partition không có tin. Nhận định ban đầu rằng lag do thiếu commit là sai; nguyên nhân nằm ở bộ test.
+
+**Sự cố thật đã ghi nhận (không do thử nghiệm):**
+- Container `kafka` được tạo lại lúc 18/11 20:14 UTC. Log topic nằm ở `/tmp/kafka-logs` trong container, không nằm trên volume đã gắn vào `/var/lib/kafka/data`. Log cũ mất; topic `dms.dept.sales.document` được tạo lại lúc 19/11 08:36 UTC.
+- Lúc 15:29 UTC ngày 19/11, projector (code P0.6.1) phát hiện "tiến độ 5 ≥ log-end 2" tại `dms.dept.sales.document[0]`, đọc lại từ offset 0 và hội tụ. Đối chiếu node SALES với chỉ mục trung tâm: khớp (2 tài liệu, id, row_version, status).
+- Giới hạn: đọc lại chỉ phát lại sự kiện còn trong topic. Tài liệu không còn trong topic mới vẫn nằm trong chỉ mục. Đối soát đầy đủ cần resync (feature 3).
+
+**Hồi quy `e2e-smoke.sh`:**
+
+| Lần chạy | Kết quả | Ghi chú |
+|---|---|---|
+| Trước (b) | 99 đạt, 0 lỗi | Warm SLA 186 ms |
+| Sau (b), lần 1 | 98 đạt, 1 lỗi | Warm SLA 1426 ms (ngưỡng 800 ms) |
+| Sau (b), lần 2 | 99 đạt, 0 lỗi | Warm SLA 150 ms, Cold SLA 1364 ms |
+
+**Chưa xong và khoảng trống:**
+- Nguyên nhân Warm SLA lần 1 chưa xác định. Mã cho thấy đường truy vấn khi trung tâm sập không chờ kết nối trung tâm: bản chụp danh bạ có cooldown 4 giây (`snapshot.service.ts`), `lookupCentralIds` bỏ qua khi `sourceDown`, và `fallback` trả ngay. Giả thuyết còn lại là một node trả lời chậm khi máy thiếu RAM (commit khoảng 27/31 GB). Chưa kiểm bằng `tookMs` từng node.
+- Log search có `ExceptionsHandler: Connection terminated due to connection timeout` lúc 16:37:50–57 UTC, khi trung tâm vừa dừng. Chưa xác định endpoint. Vòng đo cold/warm không kiểm mã HTTP, nên nếu đây là lỗi 500 thì e2e không thấy được.
+- Dòng tiến độ cũ `dms.dept.legal.document:0` còn trong CSDL; topic đã không còn. Chờ quyết định xóa.
+- RAM: P1 Hướng A thêm 2 broker. Theo mức dùng hiện tại của một broker (643 MiB), cần thêm khoảng 1,3 GB, nên điều kiện "≥ 2,0 GB trống" chưa đủ.
+- Đổi `KAFKA_LOG_DIRS` sang volume cần tạo lại container Kafka, nên phải sao chép log trước. Việc này thuộc runbook P1.
+
 ## 2l. Gói P0.5: khép kín P0 trước khi làm P1 (2026-11-19)
 
 | Mục | Nội dung | Kết quả đã kiểm chứng |

@@ -1,3 +1,4 @@
+import { createHash } from 'crypto';
 import { Injectable, Logger, OnApplicationBootstrap, OnApplicationShutdown } from '@nestjs/common';
 import { Admin, Consumer, EachMessagePayload, Kafka, logLevel, Producer } from 'kafkajs';
 import { Pool, PoolClient } from 'pg';
@@ -38,6 +39,12 @@ const MAX_ATTEMPTS = 3;
  *   event cũ/trùng bị bỏ qua nhờ source_version (= document.row_version ở node).
  * - Lỗi: thử lại tối đa 3 lần, sau đó đẩy vào DLQ `dms.dlq.projector` và đi tiếp (không nghẽn partition).
  */
+/** Trạng thái tiêu thụ theo partition (P0.6.1): handle() chỉ xử lý partition có trạng thái. */
+type PartitionMode =
+  | { mode: 'VERIFY'; stored: number; fp: string; low: number; attempts: number }
+  | { mode: 'RESET'; low: number }
+  | { mode: 'OK' };
+
 @Injectable()
 export class ProjectorService implements OnApplicationBootstrap, OnApplicationShutdown {
   private readonly logger = new Logger(ProjectorService.name);
@@ -45,6 +52,7 @@ export class ProjectorService implements OnApplicationBootstrap, OnApplicationSh
   private kafka!: Kafka;
   private consumer: Consumer | null = null;
   private admin: Admin | null = null;
+  private readonly partitionState = new Map<string, PartitionMode>();
   private producer: Producer | null = null;
   private topics: string[] = [];
   private pollTimer: NodeJS.Timeout | null = null;
@@ -105,6 +113,7 @@ export class ProjectorService implements OnApplicationBootstrap, OnApplicationSh
       if (this.consumer) {
         try { await this.consumer.disconnect(); } catch { /* bỏ qua */ }
       }
+      this.partitionState.clear();
       const consumer = this.kafka.consumer({ groupId: this.groupId, allowAutoTopicCreation: false });
       await consumer.connect();
       for (const topic of found) {
@@ -117,7 +126,7 @@ export class ProjectorService implements OnApplicationBootstrap, OnApplicationSh
       });
       await consumer.run({
         autoCommit: false,
-        eachMessage: (payload) => this.handle(payload),
+        eachMessage: (payload) => this.handle(payload, consumer),
       });
       this.consumer = consumer;
       this.topics = found;
@@ -128,27 +137,125 @@ export class ProjectorService implements OnApplicationBootstrap, OnApplicationSh
     }
   }
 
+  /**
+   * Khôi phục vị trí đọc theo tiến độ đã lưu (P0.6.1).
+   * B1 (khoảng offset): tiến độ >= log-end, hoặc < log-start, hoặc không có dấu vân tay -> đọc lại từ log-start.
+   * B2 (dấu vân tay): đọc lại đúng bản ghi tại tiến độ rồi so dấu vân tay; khớp thì tiếp tục từ tiến độ + 1.
+   */
   private async seekToProgress(consumer: Consumer, assignment: Record<string, number[]>) {
     try {
+      if (!this.admin) throw new Error('admin Kafka chưa sẵn sàng');
       for (const [topic, partitions] of Object.entries(assignment)) {
+        const offsets = await this.admin.fetchTopicOffsets(topic);
+        const range = new Map(offsets.map((o) => [o.partition, { low: Number(o.low), high: Number(o.high) }]));
         for (const partition of partitions) {
-          const r = await this.pool.query(
-            `SELECT last_offset FROM cdc_partition_progress WHERE consumer_group=$1 AND topic=$2 AND partition_id=$3`,
+          const key = `${topic}:${partition}`;
+          const r = range.get(partition);
+          if (!r) throw new Error(`không lấy được offset của ${key}`);
+          const row = await this.pool.query(
+            `SELECT last_offset, last_fingerprint FROM cdc_partition_progress WHERE consumer_group=$1 AND topic=$2 AND partition_id=$3`,
             [this.groupId, topic, partition],
           );
-          if (r.rowCount) {
-            const next = String(Number(r.rows[0].last_offset) + 1);
-            consumer.seek({ topic, partition, offset: next });
-            this.logger.log(`Seek ${topic}[${partition}] -> offset ${next} (theo cdc_partition_progress)`);
+          if (!row.rowCount || Number(row.rows[0].last_offset) < 0) {
+            this.setOk(consumer, topic, partition, r.low);
+            continue;
           }
+          const stored = Number(row.rows[0].last_offset);
+          const fp: string | null = row.rows[0].last_fingerprint;
+          // B1: stored >= high nghĩa là log-end đã lùi qua tiến độ: topic bị tạo lại hoặc lệch offset
+          if (stored >= r.high) {
+            await this.resetPartition(consumer, topic, partition, r.low, `tiến độ ${stored} >= log-end ${r.high}`);
+            continue;
+          }
+          // stored < low: bản ghi tại stored đã bị retention xóa
+          if (stored < r.low) {
+            if (stored + 1 < r.low) {
+              this.logger.error(`MẤT DỮ LIỆU CHỈ MỤC tại ${key}: tiến độ ${stored}, offset còn lưu từ ${r.low}; ${r.low - stored - 1} bản ghi đã bị retention xóa`);
+            }
+            await this.resetPartition(consumer, topic, partition, r.low, `tiến độ ${stored} < log-start ${r.low}`);
+            continue;
+          }
+          if (!fp) {
+            await this.resetPartition(consumer, topic, partition, r.low, 'chưa có dấu vân tay để xác minh');
+            continue;
+          }
+          // B2: đọc lại đúng bản ghi tại stored để so dấu vân tay (handle() thực hiện so sánh)
+          this.partitionState.set(key, { mode: 'VERIFY', stored, fp, low: r.low, attempts: 0 });
+          consumer.seek({ topic, partition, offset: String(stored) });
+          this.logger.log(`Xác minh ${key} tại offset ${stored} (dấu vân tay)`);
         }
       }
     } catch (err) {
-      this.logger.warn(`Seek theo progress lỗi (bỏ qua, xử lý idempotent): ${err.message}`);
+      if (this.stopped) return;
+      this.logger.error(`Khôi phục tiến độ lỗi, thử lại sau 5 giây: ${err.message}`);
+      setTimeout(() => void this.seekToProgress(consumer, assignment), 5000);
     }
   }
 
-  private async handle({ topic, partition, message }: EachMessagePayload) {
+  private setOk(consumer: Consumer, topic: string, partition: number, low: number) {
+    consumer.seek({ topic, partition, offset: String(low) });
+    this.partitionState.set(`${topic}:${partition}`, { mode: 'OK' });
+  }
+
+  /** Đọc lại từ log-start: ghi tiến độ về -1 và xóa dấu vân tay. */
+  private async resetPartition(consumer: Consumer, topic: string, partition: number, low: number, reason: string) {
+    this.logger.warn(`Phát hiện ${reason} tại ${topic}[${partition}]. Tự động phục hồi: đọc lại từ offset ${low}.`);
+    await this.pool.query(
+      `UPDATE cdc_partition_progress SET last_offset = -1, last_fingerprint = NULL, updated_at = NOW()
+        WHERE consumer_group=$1 AND topic=$2 AND partition_id=$3`,
+      [this.groupId, topic, partition],
+    );
+    consumer.seek({ topic, partition, offset: String(low) });
+    this.partitionState.set(`${topic}:${partition}`, { mode: 'RESET', low });
+  }
+
+  /** Dấu vân tay bản ghi: nhận ra topic đã được tạo lại (kafkajs 2.2.4 không có topicId). */
+  private fingerprint(topic: string, partition: number, message: { offset: string; key: Buffer | null; timestamp: string; value: Buffer | null }): string {
+    const keyHex = message.key ? message.key.toString('hex') : '';
+    const valueHash = createHash('sha256').update(message.value ?? Buffer.alloc(0)).digest('hex');
+    return createHash('sha256')
+      .update(`${topic}:${partition}:${message.offset}:${keyHex}:${message.timestamp}:${valueHash}`)
+      .digest('hex')
+      .slice(0, 32);
+  }
+
+  /** Cổng vào: quyết định theo trạng thái partition trước khi xử lý (partition không có trạng thái thì bỏ qua). */
+  private async handle(payload: EachMessagePayload, consumer: Consumer) {
+    const { topic, partition, message } = payload;
+    const offset = Number(message.offset);
+    const key = `${topic}:${partition}`;
+    const st = this.partitionState.get(key);
+    if (!st) return; // chưa khôi phục tiến độ cho partition này: không xử lý (an toàn mặc định)
+    const fp = this.fingerprint(topic, partition, message);
+    if (st.mode === 'RESET') {
+      if (offset !== st.low) return; // bỏ qua cho tới khi seek về log-start có hiệu lực
+      this.partitionState.set(key, { mode: 'OK' });
+    } else if (st.mode === 'VERIFY') {
+      if (offset < st.stored) return;
+      if (offset > st.stored) {
+        // vị trí seek chưa áp dụng cho batch đang đọc: seek lại (tối đa 5 lần)
+        if (++st.attempts > 5) {
+          await this.resetPartition(consumer, topic, partition, st.low, 'không xác minh được vị trí tiến độ');
+          return;
+        }
+        consumer.seek({ topic, partition, offset: String(st.stored) });
+        return;
+      }
+      if (fp !== st.fp) {
+        await this.resetPartition(consumer, topic, partition, st.low, `dấu vân tay không khớp tại offset ${offset} (topic đã được tạo lại)`);
+        return;
+      }
+      // Bản ghi này đã được xử lý trước đó: không áp dụng lại; tiếp tục từ offset + 1.
+      // Commit offset để lag (chỉ số đo) phản ánh đúng; nguồn sự thật vẫn là cdc_partition_progress.
+      this.partitionState.set(key, { mode: 'OK' });
+      await consumer.commitOffsets([{ topic, partition, offset: String(offset + 1) }]).catch(() => undefined);
+      this.logger.log(`Dấu vân tay khớp ${key}@${offset}: tiếp tục từ ${offset + 1}`);
+      return;
+    }
+    await this.consume(payload, fp);
+  }
+
+  private async consume({ topic, partition, message }: EachMessagePayload, fp: string) {
     const offset = Number(message.offset);
     const code = topic.match(TOPIC_PATTERN)![1].toUpperCase();
     const raw = message.value?.toString('utf8') ?? '';
@@ -157,7 +264,7 @@ export class ProjectorService implements OnApplicationBootstrap, OnApplicationSh
     let infraWaits = 0;
     for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
       try {
-        await this.apply(code, topic, partition, offset, raw);
+        await this.apply(code, topic, partition, offset, raw, fp);
         await this.commitKafkaOffset(topic, partition, offset);
         if (infraWaits > 0) this.logger.log(`Đã xử lý ${topic}[${partition}]@${offset} sau ${infraWaits} lần chờ CSDL trung tâm hồi phục`);
         return;
@@ -192,7 +299,7 @@ export class ProjectorService implements OnApplicationBootstrap, OnApplicationSh
       ],
     });
     this.metrics.cdcEventsProcessedTotal.inc({ department: code, op: 'unknown', status: 'dlq' });
-    await this.recordFailure(code, topic, partition, offset, raw, lastError!);
+    await this.recordFailure(code, topic, partition, offset, raw, lastError!, fp);
     await this.commitKafkaOffset(topic, partition, offset);
     this.logger.error(`Đã chuyển ${topic}[${partition}]@${offset} vào DLQ ${DLQ_TOPIC}: ${lastError?.message}`);
   }
@@ -236,7 +343,7 @@ export class ProjectorService implements OnApplicationBootstrap, OnApplicationSh
     return r.rows[0].department_id;
   }
 
-  private async apply(code: string, topic: string, partition: number, offset: number, raw: string) {
+  private async apply(code: string, topic: string, partition: number, offset: number, raw: string, fp: string) {
     const ev = this.parse(raw);
     if (ev.departmentCode && ev.departmentCode.toUpperCase() !== code) {
       throw new Error(`departmentCode "${ev.departmentCode}" không khớp topic ${topic}`);
@@ -299,11 +406,12 @@ export class ProjectorService implements OnApplicationBootstrap, OnApplicationSh
 
       // Offset ghi CÙNG transaction: không bao giờ "đã xử lý mà chưa lưu offset" hay ngược lại
       await client.query(
-        `INSERT INTO cdc_partition_progress (consumer_group, topic, partition_id, last_offset, updated_at)
-         VALUES ($1,$2,$3,$4,NOW())
+        `INSERT INTO cdc_partition_progress (consumer_group, topic, partition_id, last_offset, last_fingerprint, updated_at)
+         VALUES ($1,$2,$3,$4,$5,NOW())
          ON CONFLICT (consumer_group, topic, partition_id)
-         DO UPDATE SET last_offset = GREATEST(cdc_partition_progress.last_offset, EXCLUDED.last_offset), updated_at = NOW()`,
-        [this.groupId, topic, partition, offset],
+         DO UPDATE SET last_fingerprint = CASE WHEN EXCLUDED.last_offset >= cdc_partition_progress.last_offset THEN EXCLUDED.last_fingerprint ELSE cdc_partition_progress.last_fingerprint END,
+                       last_offset = GREATEST(cdc_partition_progress.last_offset, EXCLUDED.last_offset), updated_at = NOW()`,
+        [this.groupId, topic, partition, offset, fp],
       );
       await client.query('COMMIT');
     } catch (err) {
@@ -316,7 +424,7 @@ export class ProjectorService implements OnApplicationBootstrap, OnApplicationSh
     if (applied) await this.cache.invalidateSearchCache();
   }
 
-  private async recordFailure(code: string, topic: string, partition: number, offset: number, raw: string, err: Error) {
+  private async recordFailure(code: string, topic: string, partition: number, offset: number, raw: string, err: Error, fp: string) {
     const client = await this.pool.connect();
     try {
       await client.query('BEGIN');
@@ -328,11 +436,12 @@ export class ProjectorService implements OnApplicationBootstrap, OnApplicationSh
         [deptId, partition, offset, JSON.stringify({ raw: raw.slice(0, 2000) }), String(err.message).slice(0, 500)],
       );
       await client.query(
-        `INSERT INTO cdc_partition_progress (consumer_group, topic, partition_id, last_offset, updated_at)
-         VALUES ($1,$2,$3,$4,NOW())
+        `INSERT INTO cdc_partition_progress (consumer_group, topic, partition_id, last_offset, last_fingerprint, updated_at)
+         VALUES ($1,$2,$3,$4,$5,NOW())
          ON CONFLICT (consumer_group, topic, partition_id)
-         DO UPDATE SET last_offset = GREATEST(cdc_partition_progress.last_offset, EXCLUDED.last_offset), updated_at = NOW()`,
-        [this.groupId, topic, partition, offset],
+         DO UPDATE SET last_fingerprint = CASE WHEN EXCLUDED.last_offset >= cdc_partition_progress.last_offset THEN EXCLUDED.last_fingerprint ELSE cdc_partition_progress.last_fingerprint END,
+                       last_offset = GREATEST(cdc_partition_progress.last_offset, EXCLUDED.last_offset), updated_at = NOW()`,
+        [this.groupId, topic, partition, offset, fp],
       );
       await client.query('COMMIT');
     } catch (e) {
