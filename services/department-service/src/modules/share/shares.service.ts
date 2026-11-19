@@ -123,8 +123,18 @@ export class SharesService {
   }
 
   /** Như grant() nhưng cho biết kết quả: CREATED (dòng mới), EXTENDED (đã có lượt đang hiệu lực: đổi quyền/gia hạn), EXISTING (gọi lại idempotent). */
-  async grantWithAction(p: GrantInput): Promise<{ share: ShareRow; action: 'CREATED' | 'EXTENDED' | 'EXISTING' }> {
+  async grantWithAction(p: GrantInput): Promise<{ share: ShareRow; action: 'CREATED' | 'EXTENDED' | 'EXISTING' | 'SUPERSEDED' }> {
     if (p.accessRequestId) {
+      // Sổ idempotent = lịch sử (không phụ thuộc việc access_request_id trên lượt có còn là yêu cầu này hay không)
+      const hit = await this.prisma.$queryRaw<Array<{ share_id: bigint | number }>>(Prisma.sql`
+        SELECT share_id FROM document_share_history
+         WHERE access_request_id = ${BigInt(p.accessRequestId)} AND action IN ('GRANTED', 'RENEWED')
+         ORDER BY history_id LIMIT 1`);
+      if (hit.length) {
+        const byHistory = await this.findOne(Prisma.sql`share_id = ${Number(hit[0].share_id)}`);
+        if (byHistory) return { share: byHistory, action: 'EXISTING' };
+      }
+      // Dữ liệu trước khi có lịch sử: vẫn tra theo access_request_id như cũ
       const existed = await this.findOne(Prisma.sql`access_request_id = ${p.accessRequestId}`);
       if (existed) return { share: existed, action: 'EXISTING' };
     }
@@ -145,7 +155,10 @@ export class SharesService {
       p.source === 'MIGRATED'
         ? Prisma.sql`DO UPDATE SET updated_at = document_share.updated_at`
         : Prisma.sql`DO UPDATE SET permission = EXCLUDED.permission, expires_at = EXCLUDED.expires_at,
-                                   reason = EXCLUDED.reason, updated_at = NOW()`;
+                                   reason = EXCLUDED.reason, updated_at = NOW(),
+                                   access_request_id = COALESCE(EXCLUDED.access_request_id, document_share.access_request_id)
+                     WHERE EXCLUDED.access_request_id IS NULL OR document_share.access_request_id IS NULL
+                        OR EXCLUDED.access_request_id > document_share.access_request_id`;
     let row: ShareRow;
     let renewed = false;
     try {
@@ -159,10 +172,33 @@ export class SharesService {
                   ${p.createdAt ?? new Date()}, NOW())
           ON CONFLICT (doc_id, shared_with_dept) WHERE NOT is_revoked ${onConflict}
           RETURNING *, (xmax <> 0) AS was_updated`);
+        if (rows.length === 0) {
+          // Yêu cầu CŨ hơn quyết định đang hiệu lực: không đổi quyền, chỉ ghi vết
+          const cur = sanitizeBigInt(await tx.$queryRaw<ShareRow[]>(Prisma.sql`
+            SELECT * FROM document_share WHERE doc_id = ${BigInt(p.docId)} AND shared_with_dept = ${p.sharedWithDept} AND NOT is_revoked`))[0] as ShareRow;
+          await this.writeHistory(tx, {
+            shareId: cur.share_id, docId: p.docId, dept: p.sharedWithDept, permission: p.permission,
+            expiresAt: p.expiresAt, action: 'SUPERSEDED', accessRequestId: p.accessRequestId ?? null, actor: p.createdBy,
+          });
+          return { superseded: true as const, share: cur };
+        }
+        const cur = sanitizeBigInt(rows)[0] as ShareRow & { was_updated: boolean };
+        // Dữ liệu chuyển từ bản cũ không được coi là cấp mới: chỉ ghi GRANTED khi là dòng mới
+        const action = p.source === 'MIGRATED' ? (cur.was_updated ? null : 'GRANTED') : (cur.was_updated ? 'RENEWED' : 'GRANTED');
+        if (action) {
+          await this.writeHistory(tx, {
+            shareId: cur.share_id, docId: p.docId, dept: p.sharedWithDept, permission: cur.permission,
+            expiresAt: p.expiresAt, action, accessRequestId: p.accessRequestId ?? null, actor: p.createdBy,
+          });
+        }
         await this.touchDocumentAndEmit(tx, p.docId);
-        return sanitizeBigInt(rows)[0] as ShareRow & { was_updated: boolean };
+        return { superseded: false as const, share: cur };
       });
-      const { was_updated, ...clean } = result;
+      if (result.superseded) {
+        this.logger.warn(`Yêu cầu ${p.accessRequestId ?? '-'} cũ hơn quyết định đang có tại ${p.sharedWithDept}: không đổi quyền`);
+        return { share: result.share, action: 'SUPERSEDED' };
+      }
+      const { was_updated, ...clean } = result.share as ShareRow & { was_updated: boolean };
       row = clean as ShareRow;
       renewed = was_updated === true;
     } catch (err) {
@@ -208,6 +244,13 @@ export class SharesService {
            SET is_revoked = TRUE, revoked_at = NOW(), revoked_by = ${actor.username}, updated_at = NOW()
          WHERE share_id = ${BigInt(shareId)} AND is_revoked = FALSE
         RETURNING *`;
+      if (rows.length) {
+        const r = sanitizeBigInt(rows)[0] as ShareRow;
+        await this.writeHistory(tx, {
+          shareId: r.share_id, docId: Number(r.doc_id), dept: r.shared_with_dept, permission: r.permission,
+          expiresAt: r.expires_at, action: 'REVOKED', accessRequestId: r.access_request_id ?? null, actor: actor.username,
+        });
+      }
       await this.touchDocumentAndEmit(tx, Number(share.doc_id));
       return rows.length ? (sanitizeBigInt(rows)[0] as ShareRow) : share;
     });
@@ -289,6 +332,17 @@ export class SharesService {
    * Tăng row_version của tài liệu (trigger fn_update_timestamp) và ghi sự kiện Outbox TRONG CÙNG transaction với
    * thay đổi chia sẻ: Central Index cập nhật bản sao quyền, không bị bỏ qua vì "phiên bản không mới hơn".
    */
+  /** Ghi một dòng lịch sử. Gọi TRONG transaction của thay đổi lượt chia sẻ để hai bên không bao giờ lệch nhau. */
+  private async writeHistory(
+    tx: Prisma.TransactionClient,
+    h: { shareId: number; docId: number; dept: string; permission: string; expiresAt: unknown; action: 'GRANTED' | 'RENEWED' | 'REVOKED' | 'SUPERSEDED'; accessRequestId: number | null; actor: string | null },
+  ) {
+    await tx.$executeRaw(Prisma.sql`
+      INSERT INTO document_share_history (share_id, doc_id, shared_with_dept, permission, expires_at, action, access_request_id, actor)
+      VALUES (${BigInt(h.shareId)}, ${BigInt(h.docId)}, ${h.dept}, ${h.permission}, CAST(${h.expiresAt as any} AS TIMESTAMPTZ), ${h.action},
+              ${h.accessRequestId === null ? null : BigInt(h.accessRequestId)}, ${h.actor})`);
+  }
+
   private async touchDocumentAndEmit(tx: Prisma.TransactionClient, docId: number) {
     await tx.$executeRaw`UPDATE document SET updated_at = NOW() WHERE doc_id = ${BigInt(docId)}`;
     await this.outbox.emitDocumentChanged(tx, docId, 'DocumentUpdated');

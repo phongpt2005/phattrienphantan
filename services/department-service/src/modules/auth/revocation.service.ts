@@ -34,6 +34,48 @@ export class RevocationService implements OnModuleDestroy {
     return this.client;
   }
 
+  /**
+   * Client ĐỌC dành riêng cho xác thực mỗi request: không xếp hàng khi mất kết nối, timeout ngắn.
+   * Nếu không dùng client riêng, khi Redis chết mỗi request sẽ bị treo tới khi hết timeout của client ghi.
+   */
+  private reader(): Redis {
+    if (!this.readClient) {
+      this.readClient = new Redis({
+        host: process.env.REDIS_HOST || 'localhost',
+        port: Number(process.env.REDIS_PORT || 6379),
+        password: process.env.REDIS_PASSWORD || undefined,
+        connectTimeout: 500,
+        commandTimeout: 150,
+        maxRetriesPerRequest: 0,
+        enableOfflineQueue: false,
+      });
+      this.readClient.on('error', () => undefined); // lỗi được xử lý theo từng lần đọc
+    }
+    return this.readClient;
+  }
+
+  /**
+   * FAIL-OPEN (ADR-012/013): đọc khóa thu hồi cho mỗi request. Redis lỗi/timeout thì CHO QUA để node vẫn tự trị;
+   * cảnh báo được ghi tối đa mỗi 30 giây để không tràn log.
+   * tokenVersion: tv trong JWT (token cũ không có tv được coi là 0).
+   */
+  async isRevoked(issuerDept: string, userId: number, tokenVersion: number): Promise<boolean> {
+    try {
+      const v = await this.reader().get(revocationKey(issuerDept, userId));
+      return v !== null && tokenVersion < Number(v);
+    } catch (err) {
+      const now = Date.now();
+      if (now - this.lastReadWarn > 30_000) {
+        this.lastReadWarn = now;
+        this.logger.warn(`Không đọc được khóa thu hồi (cho qua, fail-open): ${err.message}`);
+      }
+      return false;
+    }
+  }
+
+  private lastReadWarn = 0;
+  private readClient: Redis | null = null;
+
   /** Ném lỗi nếu Redis không nhận khóa: người gọi phải báo thất bại, không báo thu hồi thành công. */
   async publish(dept: string, userId: number, minValidVersion: number): Promise<void> {
     await this.redis().eval(MONOTONIC_SET, 1, revocationKey(dept, userId), String(minValidVersion));
@@ -41,5 +83,6 @@ export class RevocationService implements OnModuleDestroy {
 
   async onModuleDestroy() {
     await this.client?.quit().catch(() => undefined);
+    await this.readClient?.quit().catch(() => undefined);
   }
 }

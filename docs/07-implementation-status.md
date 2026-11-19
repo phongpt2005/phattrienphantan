@@ -122,6 +122,26 @@ Thay đổi giao diện kèm theo: thanh bên, tiêu đề và bảng lệnh Ctr
 | Node sập oan sau khi Registry khởi động lại | Bị đánh dấu `DEGRADED` | Ân hạn 65 giây, 0 sự cố giả |
 | Chuỗi audit khi ghi đồng thời | Báo đứt oan; HR có 1 nhánh rẽ thật | Thứ tự theo `chain_seq` cấp trong khóa; 200 lần ghi đồng thời vẫn nguyên; sửa lén vẫn bị phát hiện |
 
+## 2l. Gói P0.5: khép kín P0 trước khi làm P1 (2026-11-19)
+
+| Mục | Nội dung | Kết quả đã kiểm chứng |
+|---|---|---|
+| P0.5.1 Thu hồi tại node (fail-open) | JWT của node kiểm khóa `tv:<phòng>:<userId>` trên Redis; client đọc riêng, không xếp hàng, timeout 150 ms; Redis lỗi thì cho qua và cảnh báo tối đa mỗi 30 giây | `revoke-test.sh` 18/18, gồm đường nội bộ `/api/dept/hr/...` trả 401. Thử dừng Redis: node vẫn trả 200 trong 40–70 ms |
+| P0.5.2 Mã hóa sao lưu | `backup-offsite.sh` mã hóa AES-256-CBC, PBKDF2, 200000 vòng bằng `BACKUP_ENCRYPTION_KEY`; thiếu khóa thì dừng; `restore-test.sh` giải mã trước khi khôi phục | Bản `20261119_041101`: 22/22, RTO 111 giây. Bản cũ `20261119_031054` vẫn là bản chưa mã hóa, chờ quyết định xóa |
+| P0.5.3 Lịch sử chia sẻ | Bảng `document_share_history` tại node (nguồn sự thật), chỉ-thêm bằng trigger; ghi trong cùng transaction với thay đổi; sổ idempotent theo lịch sử; điều kiện đơn điệu theo mã yêu cầu nên yêu cầu cũ không ghi đè quyền mới; trả `SUPERSEDED` và gateway không báo "đã cấp quyền" khi quyền không đổi | `share-provenance-test.sh` 14/14; `approval-race-test.sh` 6/6 (1 lần 201, còn lại 409/400) |
+
+**Hồi quy phát hiện và đã sửa trong P0.5:** lệnh ghi lịch sử `REVOKED` truyền `expires_at` dưới dạng chuỗi (lỗi 42804), làm thu hồi thất bại. Đã sửa bằng `CAST(... AS TIMESTAMPTZ)` và thêm kiểm thử thu hồi qua API node vào `share-provenance-test.sh`.
+
+**Điểm lệch có chủ đích so với kế hoạch:** bảng lịch sử chỉ tạo ở node (nguồn sự thật), không tạo ở trung tâm vì trung tâm chỉ là bản chiếu.
+
+**Sự cố phát hiện khi chạy e2e và đã xử lý:**
+- Tiến độ projector trong CSDL trung tâm lệch với topic Kafka hiện tại. Nguyên nhân gốc là Kafka không lưu log vào volume: log thật nằm ở `/tmp/kafka-logs` trong container, nên mỗi lần tạo lại container Kafka thì mất topic. Lần tạo lại lúc P0.4 là nguyên nhân. Đã đặt tiến độ HR/ACC về -1 để projector đọc lại; tiến độ đã hội tụ về log-end − 1 và lag về 0. Đã sao lưu log Kafka ra ngoài container trước khi thay đổi.
+- Hàm `GREATEST` trong upsert tiến độ không bao giờ hạ giá trị, nên lỗi lệch sẽ lặp lại khi topic bị tạo lại. Cần sửa mã (xem mục P1 trước).
+- Content-worker dừng xử lý sau lỗi "Dựng consumer lỗi" lúc broker bầu lại leader; đã khởi động lại và backlog được xử lý hết.
+- Bộ nhớ Windows chỉ còn khoảng 0,8 GB trên 15,6 GB, làm heartbeat của broker Kafka bị timeout khi máy bận.
+
+**Kết quả cuối:** `e2e-smoke.sh` 96/96, 0 lỗi (Warm SLA 169 ms, Cold 1445 ms).
+
 ## 2k. Gói P0 (ổn định trước khi làm Gói B, 2026-11-19)
 
 Thứ tự theo quyết định Q4: N5 → N1 → N7 → đóng cổng. Mỗi mục có bằng chứng chạy thật.

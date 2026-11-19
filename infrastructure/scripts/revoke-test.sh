@@ -5,7 +5,7 @@
 # Kiểm tra trên gateway: tìm kiếm liên phòng, tải tệp liên phòng, danh sách chia sẻ.
 # Phân quyền: trưởng phòng thu hồi được nhân viên; trưởng phòng không thu hồi được Ban Giám đốc (403);
 # nhân viên không thu hồi được người khác (403).
-# Ghi nhận riêng (không tính là lỗi): đường nội bộ /api/dept/hr/... vẫn nhận token đã thu hồi tới khi hết hạn.
+# Đường nội bộ node (/api/dept/hr/...) cũng kiểm khóa thu hồi (P0.5.1, fail-open khi Redis không đọc được).
 # ============================================================
 set -uo pipefail
 cd "$(dirname "$0")/../.."
@@ -59,10 +59,9 @@ chk "trưởng phòng không thu hồi được token Ban Giám đốc (403)" "$
 chk "nhân viên không thu hồi được token của chính mình (403)" "$(revoke "${ST2:-x}" "$STAFF_ID")" 403
 chk "nhân viên không thu hồi được token của nhân viên khác (403)" "$(revoke "${ST_B:-x}" "$STAFF_ID")" 403
 
-echo "== 5. Ghi nhận (không tính là lỗi): đường nội bộ của node =="
-NODE_CODE=$(code "${ST:-x}" "$G/api/dept/hr/documents?limit=1")
-echo "  token ĐÃ THU HỒI gọi trực tiếp node HR (/api/dept/hr/documents): HTTP $NODE_CODE"
-echo "  (ADR-013: đường nội bộ không kiểm Redis, có thể còn 200 tới khi token hết hạn 8 giờ)"
+echo "== 5. Đường nội bộ của node (P0.5.1): token đã thu hồi phải bị 401 =="
+chk "node HR /api/dept/hr/documents: token đã thu hồi bị 401" "$(code "${ST:-x}" "$G/api/dept/hr/documents?limit=1")" 401
+chk "node HR: token mới (sau đăng nhập lại) vẫn được chấp nhận" "$(code "${ST2:-x}" "$G/api/dept/hr/documents?limit=1")" 200
 
 echo; echo "===== KẾT QUẢ THU HỒI TOKEN: $PASS đạt, $FAIL lỗi ====="
 [ "$FAIL" -eq 0 ]

@@ -300,3 +300,40 @@ WHERE NOT EXISTS (SELECT 1 FROM local_user WHERE username = 'admin');
 
 -- Feature 4b: thu hồi token (Expand: thêm cột có DEFAULT, không đổi cột cũ)
 ALTER TABLE local_user ADD COLUMN IF NOT EXISTS token_version INT NOT NULL DEFAULT 0;
+
+-- P0.5.3: sổ lịch sử chia sẻ tại NODE (nguồn sự thật). Chỉ thêm (append-only), ghi cùng transaction với lượt chia sẻ.
+CREATE TABLE IF NOT EXISTS document_share_history (
+    history_id        BIGSERIAL     PRIMARY KEY,
+    share_id          BIGINT        NOT NULL,
+    doc_id            BIGINT        NOT NULL,
+    shared_with_dept  VARCHAR(20)   NOT NULL,
+    permission        VARCHAR(20)   NOT NULL,
+    expires_at        TIMESTAMPTZ,
+    action            VARCHAR(12)   NOT NULL,
+    access_request_id BIGINT,
+    actor             VARCHAR(100),
+    created_at        TIMESTAMPTZ   NOT NULL DEFAULT NOW(),
+    CONSTRAINT chk_share_history_action CHECK (action IN ('GRANTED', 'RENEWED', 'REVOKED', 'SUPERSEDED'))
+);
+CREATE INDEX IF NOT EXISTS idx_share_hist_share ON document_share_history(share_id);
+CREATE INDEX IF NOT EXISTS idx_share_hist_req   ON document_share_history(access_request_id) WHERE access_request_id IS NOT NULL;
+
+CREATE OR REPLACE FUNCTION fn_share_history_immutable() RETURNS trigger AS $$
+BEGIN
+    RAISE EXCEPTION 'document_share_history là bảng chỉ-thêm (append-only): không được sửa hoặc xóa';
+END;
+$$ LANGUAGE plpgsql;
+DROP TRIGGER IF EXISTS trg_share_history_immutable ON document_share_history;
+CREATE TRIGGER trg_share_history_immutable
+    BEFORE UPDATE OR DELETE ON document_share_history
+    FOR EACH ROW EXECUTE FUNCTION fn_share_history_immutable();
+
+-- Backfill (idempotent): mọi lượt đã có trước đây được ghi là GRANTED; lượt đã thu hồi thêm REVOKED
+INSERT INTO document_share_history (share_id, doc_id, shared_with_dept, permission, expires_at, action, access_request_id, actor, created_at)
+SELECT s.share_id, s.doc_id, s.shared_with_dept, s.permission, s.expires_at, 'GRANTED', s.access_request_id, s.created_by, s.created_at
+  FROM document_share s
+ WHERE NOT EXISTS (SELECT 1 FROM document_share_history h WHERE h.share_id = s.share_id AND h.action = 'GRANTED');
+INSERT INTO document_share_history (share_id, doc_id, shared_with_dept, permission, expires_at, action, access_request_id, actor, created_at)
+SELECT s.share_id, s.doc_id, s.shared_with_dept, s.permission, s.expires_at, 'REVOKED', s.access_request_id, s.revoked_by, COALESCE(s.revoked_at, s.updated_at)
+  FROM document_share s
+ WHERE s.is_revoked AND NOT EXISTS (SELECT 1 FROM document_share_history h WHERE h.share_id = s.share_id AND h.action = 'REVOKED');

@@ -216,7 +216,7 @@ export class InternalController {
     if (expiresAt && Number.isNaN(expiresAt.getTime())) throw new BadRequestException('expiresAt không hợp lệ');
     const source = body.source === 'MIGRATED' ? 'MIGRATED' : 'REQUEST';
     if (source === 'REQUEST' && !body.accessRequestId) throw new BadRequestException('Chia sẻ từ yêu cầu phải kèm accessRequestId');
-    const share = await this.shares.grant({
+    const { share, action } = await this.shares.grantWithAction({
       docId,
       sharedWithDept: body.sharedWithDept,
       permission: body.permission === 'DOWNLOAD' ? 'DOWNLOAD' : 'VIEW',
@@ -229,6 +229,7 @@ export class InternalController {
       createdAt: body.createdAt ? new Date(body.createdAt) : undefined,
       isRevoked: body.isRevoked === true,
     });
-    return { share };
+    // action: CREATED | EXTENDED | EXISTING | SUPERSEDED (yêu cầu cũ hơn quyết định đang có: quyền không đổi)
+    return { share, action };
   }
 }

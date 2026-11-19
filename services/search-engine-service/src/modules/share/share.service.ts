@@ -245,6 +245,7 @@ export class ShareService {
     }
 
     let share: unknown;
+    let nodeAction: string | undefined;
     try {
       const res = await fetch(`${owner.node_endpoint}/internal/shares`, {
         method: 'POST',
@@ -264,6 +265,7 @@ export class ShareService {
       const body: any = await res.json().catch(() => ({}));
       if (!res.ok) throw new BadRequestException(body?.message || `Node ${owner.dept_code} từ chối cấp quyền (HTTP ${res.status})`);
       share = body.share;
+      nodeAction = body.action;
     } catch (err: any) {
       if (err instanceof BadRequestException) throw err;
       throw new ServiceUnavailableException(`Không gọi được node ${owner.dept_code} để cấp quyền: ${err.message}. Yêu cầu vẫn chờ duyệt.`);
@@ -281,6 +283,15 @@ export class ShareService {
     }
 
     await this.cacheService.invalidateSearchCache();
+    if (nodeAction === 'SUPERSEDED') {
+      // Node đã có quyền MỚI HƠN từ một yêu cầu khác: quyền hiện hành không đổi. Không báo "đã cấp quyền".
+      this.logger.warn(`Yêu cầu [${requestId}] được duyệt nhưng quyền hiện hành tại ${req.target_dept} mới hơn: không đổi quyền`);
+      return {
+        message: 'Đã ghi nhận duyệt. Phòng chủ đã có quyền mới hơn từ một yêu cầu khác nên quyền hiện hành KHÔNG thay đổi.',
+        share,
+        superseded: true,
+      };
+    }
     this.notifications.publish({
       type: 'ACCESS_APPROVED',
       title: 'Yêu cầu xin quyền đã được duyệt',
