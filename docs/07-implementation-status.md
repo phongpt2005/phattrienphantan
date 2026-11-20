@@ -122,18 +122,36 @@ Thay đổi giao diện kèm theo: thanh bên, tiêu đề và bảng lệnh Ctr
 | Node sập oan sau khi Registry khởi động lại | Bị đánh dấu `DEGRADED` | Ân hạn 65 giây, 0 sự cố giả |
 | Chuỗi audit khi ghi đồng thời | Báo đứt oan; HR có 1 nhánh rẽ thật | Thứ tự theo `chain_seq` cấp trong khóa; 200 lần ghi đồng thời vẫn nguyên; sửa lén vẫn bị phát hiện |
 
-## 2o. Khi CSDL trung tâm lỗi: registry trả 503, node giữ nhịp tim (2026-11-20)
-
-Điều tra từ log thật: 42 dòng `ERROR ExceptionsHandler` đến từ `RegistryService.register` (34) và `heartbeat` (8), không có try/catch nên trả 500. Node coi mọi lỗi heartbeat là "mất registry", dừng heartbeat và đăng ký lại liên tục. Tìm kiếm không bị ảnh hưởng (không có 5xx trên `/api/search`).
+## 2p. Hoàn thiện P0 còn mở và các việc P1–P3 làm được khi chưa có RAM (2026-11-20)
 
 | Mục | Nội dung | Kết quả đã kiểm chứng |
 |---|---|---|
-| Registry trả 503 | `register` và `heartbeat` đổi lỗi kết nối trung tâm thành 503 kèm `Retry-After: 5`, đánh dấu mạch ngắt. Lỗi khác (404, 400) giữ nguyên | Kiểm riêng khi dừng trung tâm: heartbeat từ `dept-hr` và `dept-acc` đều nhận HTTP 503, `Retry-After: 5`. Log search sau sửa: 0 `ExceptionsHandler` (trước: 42) |
-| Node giữ nhịp tim | Mọi lỗi khác 404 (503, timeout, mất kết nối): giữ heartbeat, ghi cảnh báo ngắn. CHỈ đăng ký lại khi Registry trả 404 | Log node sau sửa: 2 dòng "nhịp tim chưa gửi được (HTTP 503)" mỗi node; 0 lần đăng ký lại; 0 lần đăng ký thất bại. Trước sửa: `dept-hr` có 114 lần đăng ký thất bại |
+| Pool trung tâm khi sập (P0) | Registry: register và heartbeat đang nghỉ trả 503 ngay, không mở kết nối mới; lịch sử tìm kiếm không ghi khi trung tâm sập; thành công thì xóa trạng thái sập (`c33e1a5`) | Khi trung tâm dừng, heartbeat trả 503 kèm `Retry-After: 5` trong thời gian nghỉ của mạch ngắt (thiết kế: không mở kết nối mới khi đang nghỉ). Số mili-giây từng lần gọi không được ghi lại đầy đủ. e2e lần 18: 100 đạt, 0 lỗi; Cold 218 ms, Warm 179 ms |
+| `.dockerignore` (P0) | Loại trừ `**/node_modules`, `**/dist`, `**/*.tsbuildinfo` (`b228728`). Cảnh báo build `frontend\node_modules` đã hết | Build đạt; cảnh báo 0 lần ở cả hai image. Lỗi phát hiện khi làm: thêm `**/dist` một mình khiến image department thiếu `@dms/database/dist/index.js`; nguyên nhân gốc là `tsbuildinfo` cũ trong build context làm tsc bỏ qua bước phát ra. Sửa: loại thêm `**/*.tsbuildinfo`, giữ `**/dist` |
+| C3 sao lưu log Kafka mã hóa (P1) | `backup-kafka-logs.sh` và `kafka-logs-restore-test.sh` (`35909b1`) | Bản `kafka_20261120_221415` vào OneDrive\dms_backups: 543 tệp gốc, 4.454.608 byte mã hóa. Khôi phục thử: tệp mã hóa khớp manifest; 543/543 tệp khớp SHA-256 và kích thước; segment `__cluster_metadata-0` đọc được 73.980 bản ghi |
+| N3 đối soát tự động (P1) | `GET /internal/digest` ở node; `ReconcileService` ở search, chu kỳ 5 phút, khóa tư vấn (advisory lock) trên CSDL trung tâm chỉ một bản chạy; lệch thì đợi 20 giây kiểm lại rồi yêu cầu resync (`b228728`) | Digest khớp tuyệt đối: HR 334, ACC 4, SALES 8. Làm lệch có kiểm soát bằng cách đổi `row_version` của một tài liệu trên node HR. Log (giờ UTC của container): 15:52:19 phát hiện LỆCH; 15:52:24 yêu cầu resync (lệch 1); 15:57:00 lệch 0. Hai vòng bình thường 15:46:59 và 15:47:00 đều lệch 0, không có lệch giả. e2e lần 19: 100 đạt, 0 lỗi |
+| N4 quét toàn vẹn tệp (P3) | `FileIntegrityService` đọc lại từng tệp MinIO, băm SHA-256 và so với checksum và kích thước đã lưu; `GET /internal/integrity`, `POST /internal/integrity/scan` (`dde7d17`) | Quét node HR: 341/341 tệp khớp. Làm sai checksum của `file_id=1` trong CSDL node: 1 tệp lệch (340 khớp) kèm cảnh báo; khôi phục: 341/341. Ghi chú: lỗi mô phỏng bằng checksum đã lưu; đường so sánh giống hệt tệp hỏng thật. e2e lần 20: 100 đạt, 0 lỗi |
+| C1 khung chaos (P2) | `infrastructure/chaos/run_scenario.py` và kịch bản JSON (chưa YAML: máy chưa cài PyYAML) (`24c81a4`) | `central-down` 8/8 đạt (tìm kiếm HTTP 200, tổng 141, partial=false trước, trong và sau khi CSDL trung tâm dừng). `minio-hr-down` 7/7 đạt |
+
+Chưa làm và lý do:
+- B1 (Kafka 3 broker) và B2 (Patroni CSDL trung tâm): chặn bởi C1 RAM (ba lần đo 1,52 / 1,80 / 1,45 GB, dưới 2 GB) và C2 (cửa sổ bảo trì, chờ người dùng).
+- N2 (Patroni HR) và C2 (autoscaler theo lag): N2 cần B2 và quyết định PostgreSQL 16 hoặc 17; C2 cần RAM.
+- N6 (Idempotency-Key): cần chốt thiết kế (bảng khóa, TTL, phạm vi API) trước khi viết mã.
+- B4 (bản sao ACC/SALES): cần RAM.
+- C3 của P3 (bảng điểm): cần làm rõ nội dung.
+
+## 2o. Khi CSDL trung tâm lỗi: registry trả 503, node giữ nhịp tim (2026-11-20)
+
+Điều tra từ log thật (ngày 19/11, giờ UTC): 42 lỗi `ExceptionsHandler` đều đến từ endpoint registry (`register`, `heartbeat`), tập trung trong hai cửa sổ trung tâm sập 16:37–16:38 và 17:52–17:53 UTC. Hai hàm này gọi CSDL trung tâm không có try/catch nên trả 500. Node coi mọi lỗi heartbeat là "mất registry", dừng heartbeat và đăng ký lại liên tục. Chưa có bằng chứng nginx đếm 5xx trên `/api/search` trong các cửa sổ này (kiểm tra nginx đã lên kế hoạch, kết quả không được ghi lại). Chaos `central-down` (8/8) xác nhận tìm kiếm HTTP 200 khi trung tâm dừng.
+
+| Mục | Nội dung | Kết quả đã kiểm chứng |
+|---|---|---|
+| Registry trả 503 | `register` và `heartbeat` đổi lỗi kết nối trung tâm thành 503 kèm `Retry-After: 5`, đánh dấu mạch ngắt. Lỗi khác (404, 400) giữ nguyên | Kiểm riêng khi dừng trung tâm: heartbeat từ `dept-hr` và `dept-acc` đều nhận HTTP 503 kèm `Retry-After: 5` |
+| Node giữ nhịp tim | Mọi lỗi khác 404 (503, timeout, mất kết nối): giữ heartbeat, ghi cảnh báo ngắn. CHỈ đăng ký lại khi Registry trả 404 | Log node sau sửa có dòng "Nhịp tim chưa gửi được (/registry/heartbeat -> HTTP 503), giữ heartbeat và thử lại" trong cửa sổ sập. Số dòng và số lần đăng ký lại chưa được đếm lại; trước sửa, log có chuỗi "Đăng ký Registry thất bại" lặp lại |
 | Đo SLA | Đo bằng `time_total` của curl trong một tiến trình (không fork `date` mỗi lần); kiểm HTTP 200 trong vòng đo; in `tookMs` từng node khi vượt ngưỡng | Lần 17: Cold 255 ms, Warm 184 ms, mọi truy vấn HTTP 200 |
 | Kiểm tra "dừng node HR" | Dừng cả hai bản `dept-hr` và `dept-hr-2` (cùng alias `dept-hr`, Feature 4). Trước đây chỉ dừng `dept-hr`, nên `dept-hr-2` vẫn trả nội dung tệp | Đã đo: dừng một bản thì `dept-hr-2` vẫn trả token có trong tệp (total 1). Kiểm tra đã sửa |
 
-**Hồi quy `e2e-smoke.sh` (chưa commit):**
+**Hồi quy `e2e-smoke.sh` (có từ commit 6c6de8f):**
 
 | Lần chạy | Kết quả | Ghi chú |
 |---|---|---|
@@ -142,18 +160,18 @@ Thay đổi giao diện kèm theo: thanh bên, tiêu đề và bảng lệnh Ctr
 | Lần 17 (sau sửa node: chỉ đăng ký lại khi 404) | 100 đạt, 0 lỗi | Cold 255 ms, Warm 184 ms |
 
 **Chưa xong và khoảng trống:**
-- Khi CSDL trung tâm lỗi, pool kết nối bị xếp hàng: một số heartbeat/đăng ký chờ quá 3 giây (timeout của node) trong lần chạy trước khi sửa node. Khả năng cao nguyên nhân là các ghi nền (lịch sử tìm kiếm, truy vấn giám sát) cùng chờ kết nối trung tâm. Chưa sửa; cần thiết kế riêng (không ghi nền khi trung tâm đang lỗi).
+- Pool kết nối bị xếp hàng khi CSDL trung tâm lỗi (heartbeat chờ kết nối trung tâm): đã xử lý trong `c33e1a5` (mạch ngắt nhanh; ghi nền bỏ qua khi trung tâm sập), xem mục 2p.
 - Kiểm tra e2e tổng là 100 (thêm một kiểm tra HTTP 200 trong vòng đo SLA).
-- Các mục còn mở từ mục 2n: dòng `dms.dept.legal.document:0` cũ trong CSDL, RAM cho P1, `KAFKA_LOG_DIRS`, `.dockerignore`.
+- Các mục còn mở từ mục 2n: dòng `dms.dept.legal.document:0` cũ trong CSDL, RAM cho P1, `KAFKA_LOG_DIRS`. (`.dockerignore` đã xong trong `b228728`.)
 
 ## 2n. Gói P0.6: tự phục hồi tiến độ projector và đối soát (2026-11-19 → 2026-11-20)
 
 | Mục | Nội dung | Kết quả đã kiểm chứng |
 |---|---|---|
 | P0.6.1 Tự phục hồi tiến độ bằng dấu vân tay | Mỗi bản ghi có dấu vân tay (băm topic, partition, offset, khóa, timestamp và giá trị), lưu cùng tiến độ trong một transaction. Khi khởi động: B1 kiểm khoảng offset (tiến độ ≥ log-end, tiến độ < log-start, thiếu dấu vân tay thì đọc lại từ log-start); B2 đọc lại đúng bản ghi tại tiến độ rồi so dấu vân tay: khớp thì tiếp tục từ tiến độ + 1 và commit offset, không khớp thì đọc lại từ log-start và ghi cảnh báo WARN | `projector-epoch-test.sh` **18/18**, mã thoát 0, sau khi sửa (b). Ca 1 và ca 2 là mô phỏng |
-| P0.6.2 Resync không phụ thuộc MinIO | Khi `minio-hr` dừng, `POST /internal/resync` trả HTTP 201 (trước đây HTTP 500) | Đã kiểm trước đó, `replayed` 294. Không chạy lại trong P0.6 |
-| P0.6.3 Sao lưu chưa mã hóa | Thư mục `20261119_031054` đã chuyển khỏi OneDrive | Kiểm lại: không còn trong OneDrive. Chưa kiểm nội dung Thùng rác |
-| P0.6.4 CDC SALES trong e2e | Mục 15 của `e2e-smoke.sh`: tạo tài liệu tại node SALES, vào chỉ mục trung tâm trong 30 giây, tìm liên phòng thấy | 3/3 đạt ở cả hai lần e2e sau (b) |
+| P0.6.2 Resync không phụ thuộc MinIO | Khi `minio-hr` dừng, `POST /internal/resync` trả HTTP 201 (trước đây HTTP 500). `resyncAll` chỉ đọc CSDL node và ghi outbox (`outbox.service.ts`), không gọi MinIO | Kiểm ngày 19/11 (log 15:36 UTC): `minio-hr` dừng (`State.Running=false`), resync trả HTTP 201 `{"replayed":294}`; log `dept-hr` không có lỗi MinIO trong 3 phút; `minio-hr` bật lại và healthy |
+| P0.6.3 Sao lưu chưa mã hóa | Thư mục `20261119_031054` đã chuyển khỏi OneDrive | Đã chuyển vào Thùng rác Windows theo mục 3 của phương án người dùng đã duyệt (19/11). Kiểm lại: không còn trong OneDrive; `kafka_20261120_221415` và `20261119_041101` vẫn có. Chưa kiểm nội dung Thùng rác |
+| P0.6.4 CDC SALES trong e2e | Mục 15 của `e2e-smoke.sh`: tạo tài liệu tại node SALES, vào chỉ mục trung tâm trong 30 giây, tìm liên phòng thấy | PASS 3/3 trong e2e lần 16 (tạo tài liệu tại SALES HTTP 201; vào chỉ mục trung tâm trong 30 giây; tìm liên phòng thấy) |
 
 **Quyết định kỹ thuật (đã chốt theo đề xuất):**
 - **(a) Không làm.** kafkajs 2.2.4 dừng xử lý batch khi có seek đang chờ (`runner.js:226`) và áp dụng seek trước lần fetch kế tiếp (`consumerGroup.js:454, 660`), nên không cần re-seek.

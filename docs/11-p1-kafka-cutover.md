@@ -6,9 +6,9 @@ Trạng thái: **đã chuẩn bị, CHƯA thi công**. Tài liệu này hiệu c
 
 | # | Điều kiện | Trạng thái | Bằng chứng |
 |---|---|---|---|
-| C1 | RAM trống của Windows đủ cho 3 broker | **Chưa thỏa**: còn ~0,8 GB trên 15,6 GB | `Win32_OperatingSystem`; khi bận, broker đã bị `REQUEST_TIMED_OUT` và bầu lại leader |
+| C1 | RAM trống của Windows đủ cho 3 broker | **Chưa thỏa** (đo 2026-11-20, ba lần cách nhau 15 giây): 1,52 / 1,80 / 1,45 GB trên 15,63 GB; cần ≥ 2 GB ổn định | `Win32_OperatingSystem`; khi bận, broker đã bị `REQUEST_TIMED_OUT` và bầu lại leader |
 | C2 | Có cửa sổ bảo trì được thông báo | Chờ quyết định | Ước tính dừng CDC và chỉ mục khoảng **10 phút**, không phải 15–30 giây như đặc tả |
-| C3 | Sao lưu log Kafka hiện tại ra ngoài container | Đã làm một phần | `docker cp kafka:/tmp/kafka-logs` vào thư mục scratchpad; kiểm tra đầy đủ trước khi cutover |
+| C3 | Sao lưu log Kafka hiện tại ra ngoài container | **Đã đạt** (commit `35909b1`) | `backup-kafka-logs.sh` ghi vào OneDrive\dms_backups, mã hóa AES-256. `kafka-logs-restore-test.sh` trên bản `kafka_20261120_221415`: 543/543 tệp khớp SHA-256 và kích thước; segment `__cluster_metadata-0` đọc được 73.980 bản ghi |
 | C4 | Projector có cơ chế tự phục hồi khi topic bị tạo lại | **Đã đạt** (P0.6, commit `c4ff399`) | `projector-epoch-test.sh` 18/18; đã xảy ra thật ngày 19/11: tiến độ 5 ≥ log-end 2 của SALES p0 được đọc lại và hội tụ, chỉ mục khớp node |
 
 ## 2. Phát hiện làm thay đổi đặc tả
@@ -22,7 +22,7 @@ Trạng thái: **đã chuẩn bị, CHƯA thi công**. Tài liệu này hiệu c
 
 **2.3. Connector phải đăng ký lại.** Cấu hình connector nằm trong topic `debezium_configs`, sẽ trống trên cluster mới. Dịch vụ `connect-init` đã làm việc này (PUT idempotent) và **tự gọi resync** sau khi đăng ký (`RESYNC_AFTER_REGISTER=true`). Đã kiểm chứng: đăng ký lại `outbox-hr` (HTTP 200), `outbox-acc` (HTTP 200), `outbox-sales` (HTTP 201), resync HR 289, ACC 4, SALES 1.
 
-**2.4. Resync phụ thuộc MinIO.** Khi `minio-hr` bị dừng, resync của HR trả **HTTP 500** (`getaddrinfo ... minio-hr`) và không phát lại được gì. Đây là thiết kế sai: sự kiện chỉ mục không cần đọc tệp từ MinIO. Cần sửa trước khi dựa vào resync làm đường phục hồi (xem mục 4).
+**2.4. Resync phụ thuộc MinIO.** Khi `minio-hr` bị dừng, resync của HR trả **HTTP 500** (`getaddrinfo ... minio-hr`) và không phát lại được gì. Đây là thiết kế sai: sự kiện chỉ mục không cần đọc tệp từ MinIO. Cần sửa trước khi dựa vào resync làm đường phục hồi (xem mục 4). **Đã sửa (cập nhật 2026-11-20):** `resyncAll` chỉ đọc CSDL node và ghi outbox, không gọi MinIO. Kiểm ngày 2026-11-19: khi `minio-hr` dừng, `POST /internal/resync` trả **HTTP 201**, `{"replayed":294}`, log `dept-hr` không có lỗi MinIO trong 3 phút.
 
 **2.5. Kiểm thử `NOT_ENOUGH_REPLICAS` trong đặc tả không đúng như mô tả.** Với 3 controller kết hợp broker, tắt 2 broker làm **mất quorum KRaft**: không bầu được leader mới và không cập nhật được ISR, nên lỗi ghi sẽ là timeout hoặc `NOT_LEADER`, không phải `NOT_ENOUGH_REPLICAS`. Cách kiểm chứng đúng:
 - Tạo topic thử `ha-minisr-test` với `replication.factor=3`, `min.insync.replicas=3`.
@@ -49,9 +49,9 @@ Trạng thái: **đã chuẩn bị, CHƯA thi công**. Tài liệu này hiệu c
 
 ## 4. Lỗ hổng cần sửa trước hoặc cùng P1
 
-**4.1. Tiến độ projector không tự phục hồi khi topic bị tạo lại.** Upsert dùng `GREATEST(last_offset, mới)`, nên giá trị đã lưu chỉ tăng. Khi offset đã lưu lớn hơn log-end, projector seek tới offset không tồn tại, bị "out of range", reset, và tiến độ không bao giờ hội tụ. Đề xuất sửa: trước khi seek, so `last_offset + 1` với high watermark của partition (qua admin client); nếu vượt thì seek về 0 và đặt tiến độ về -1. Việc này làm cho bước 8 của cutover không còn cần thiết thủ công.
+**4.1. Tiến độ projector không tự phục hồi khi topic bị tạo lại.** Upsert dùng `GREATEST(last_offset, mới)`, nên giá trị đã lưu chỉ tăng. Khi offset đã lưu lớn hơn log-end, projector seek tới offset không tồn tại, bị "out of range", reset, và tiến độ không bao giờ hội tụ. Đề xuất sửa: trước khi seek, so `last_offset + 1` với high watermark của partition (qua admin client); nếu vượt thì seek về 0 và đặt tiến độ về -1. Việc này làm cho bước 8 của cutover không còn cần thiết thủ công. **Đã làm (P0.6, commit `c4ff399`); kiểm bằng `projector-epoch-test.sh` 18/18.**
 
-**4.2. Resync không được phụ thuộc MinIO.** Sự kiện đồng bộ chỉ mục cần metadata (đã có trong CSDL node), không cần đọc tệp. Đề xuất: không đọc MinIO khi phát sự kiện resync; nội dung tệp được lập chỉ mục bởi content-worker theo phiên bản.
+**4.2. Resync không được phụ thuộc MinIO.** Sự kiện đồng bộ chỉ mục cần metadata (đã có trong CSDL node), không cần đọc tệp. Đề xuất: không đọc MinIO khi phát sự kiện resync; nội dung tệp được lập chỉ mục bởi content-worker theo phiên bản. **Đã làm, kiểm chứng 2026-11-19 (xem mục 2.4).**
 
 **4.3. Đăng ký SALES thiếu trong `connect-init`.** Đã sửa trong lượt này (xem commit tiếp theo): thêm `SALES` vào `CONNECTORS`, mật khẩu replication riêng theo phòng (`REPL_PASSWORD_<MÃ>`). Trước đó thay đổi của SALES không đi tới CDC và slot giữ 10 MB WAL.
 
@@ -59,4 +59,4 @@ Trạng thái: **đã chuẩn bị, CHƯA thi công**. Tài liệu này hiệu c
 
 1. Đóng ứng dụng khác để giải phóng RAM Windows (đến khi trống ≥ 2 GB), rồi báo tôi thi công.
 2. Cửa sổ bảo trì ~10 phút, có thông báo cho người dùng.
-3. Có làm mục 4.1 và 4.2 trước P1 không (khuyến nghị: có).
+3. Có làm mục 4.1 và 4.2 trước P1 không (khuyến nghị: có). **Đã làm cả hai** (xem 4.1 và 4.2); không còn cần quyết định.
