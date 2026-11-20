@@ -73,6 +73,12 @@ export class InternalController {
     return { replayed: count };
   }
 
+  /** Dấu vân tay tập tài liệu để đối soát với Central Index (N3). Không trả nội dung tài liệu. */
+  @Get('digest')
+  async digest() {
+    return this.outbox.digest();
+  }
+
   /**
    * Stream file cho Gateway (tải liên phòng ban). NODE TỰ kiểm tra sổ chia sẻ của mình: phòng khác chỉ được tải khi
    * có lượt chia sẻ DOWNLOAD còn hiệu lực (Ban Giám đốc và phòng sở hữu thì được). Node ghi audit và không bao giờ

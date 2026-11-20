@@ -11,3 +11,6 @@ yarn-error.log*
 .system_generated
 coverage
 infrastructure/postgres/data
+**/node_modules
+**/dist
+**/*.tsbuildinfo

@@ -124,6 +124,18 @@ export class OutboxService implements OnApplicationBootstrap, OnModuleDestroy {
     return docs.length;
   }
 
+  /**
+   * Dấu vân tay tập tài liệu của phòng để đối soát với Central Index (N3). Không chứa nội dung tài liệu:
+   * chỉ số dòng và md5 của chuỗi (doc_id|row_version|status) theo thứ tự doc_id.
+   */
+  async digest(): Promise<{ count: number; digest: string }> {
+    const rows = await this.prisma.$queryRaw<Array<{ count: number; digest: string }>>`
+      SELECT COUNT(*)::int AS count,
+             COALESCE(md5(string_agg(doc_id::text || '|' || row_version::text || '|' || status, ',' ORDER BY doc_id)), '') AS digest
+        FROM document`;
+    return rows[0];
+  }
+
   async onApplicationBootstrap() {
     // Lần chạy đầu sau khi nâng cấp: DB có tài liệu cũ nhưng outbox trống -> tự backfill
     if (process.env.OUTBOX_BACKFILL_ON_START !== 'false') {

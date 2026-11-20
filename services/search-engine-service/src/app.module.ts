@@ -19,6 +19,7 @@ import { NotificationService } from './modules/notification/notification.service
 import { InternalNotifyController } from './modules/notification/internal-notify.controller';
 import { MonitoringService } from './modules/monitoring/monitoring.service';
 import { SnapshotService } from './modules/snapshot/snapshot.service';
+import { ReconcileService } from './modules/reconcile/reconcile.service';
 
 @Module({
   imports: [MetricsModule],
@@ -64,6 +65,7 @@ import { SnapshotService } from './modules/snapshot/snapshot.service';
     NotificationService,
     MonitoringService,
     SnapshotService,
+    ReconcileService,
   ],
 })
 export class AppModule {}
