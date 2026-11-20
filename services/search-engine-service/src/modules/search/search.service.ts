@@ -191,7 +191,8 @@ export class SearchService {
     // Kết quả thiếu node (partial) không cache để phục hồi ngay khi node trở lại
     if (!partial && !centralDown) await this.cache.set(cacheKey, response, this.cacheTtlSec);
 
-    this.recordSearchHistory({
+    // Lịch sử tìm kiếm là ghi nền. Khi CSDL trung tâm đang sập thì bỏ qua, để không xếp hàng chờ kết nối (xem snapshot.service.ts)
+    if (!this.snapshots.sourceDown) this.recordSearchHistory({
       userId: viewer.userId,
       keyword: q,
       filters: { departmentId: query.departmentId, categoryName: query.categoryName, mimeType: query.mimeType, viewerDeptCode: viewer.departmentCode, isExecutive: exec },

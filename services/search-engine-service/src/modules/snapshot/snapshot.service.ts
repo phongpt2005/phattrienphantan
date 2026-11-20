@@ -53,6 +53,16 @@ export class SnapshotService {
     this.downUntil = Date.now() + this.cooldownMs;
   }
 
+  /** Đang trong thời gian nghỉ: thao tác ghi trung tâm (đăng ký, nhịp tim) trả lỗi ngay, không xếp hàng chờ kết nối. */
+  get inCooldown(): boolean {
+    return Date.now() < this.downUntil;
+  }
+
+  /** Một thao tác với CSDL trung tâm vừa thành công: xóa trạng thái sập. */
+  markUp(): void {
+    this.downUntil = 0;
+  }
+
   constructor(
     private readonly cache: RedisCacheService,
     private readonly metrics: MetricsService,

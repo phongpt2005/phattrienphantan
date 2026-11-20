@@ -127,17 +127,25 @@ export class RegistryService implements OnModuleInit, OnModuleDestroy {
     if (this.sweeper) clearInterval(this.sweeper);
   }
 
+  /** Lỗi 503 khi CSDL trung tâm đang nghỉ (mạch ngắt): trả ngay, không mở kết nối mới. */
+  private centralDownError(): ServiceUnavailableException {
+    return new ServiceUnavailableException({ message: 'CSDL trung tâm đang tạm thời không sẵn sàng; thử lại sau', retryAfterSec: RETRY_AFTER_SEC });
+  }
+
   /** Đổi lỗi CSDL trung tâm thành 503 (node sẽ thử lại) và đánh dấu mạch ngắt để mọi nơi cùng ngừng thử. */
   private toCentralError(err: unknown): unknown {
     if (!isCentralUnavailable(err)) return err;
     this.snapshots.markDown();
-    return new ServiceUnavailableException({ message: 'CSDL trung tâm đang tạm thời không sẵn sàng; thử lại sau', retryAfterSec: RETRY_AFTER_SEC });
+    return this.centralDownError();
   }
 
-  /** Node đăng ký: lỗi CSDL trung tâm trả 503 thay vì 500 kèm stack trace. */
+  /** Node đăng ký. Đang nghỉ thì trả 503 ngay (không xếp hàng kết nối); lỗi CSDL trung tâm trả 503 thay vì 500. */
   async register(dto: RegisterDepartmentDto) {
+    if (this.snapshots.inCooldown) throw this.centralDownError();
     try {
-      return await this.registerInner(dto);
+      const out = await this.registerInner(dto);
+      this.snapshots.markUp();
+      return out;
     } catch (err) {
       throw this.toCentralError(err);
     }
@@ -186,10 +194,13 @@ export class RegistryService implements OnModuleInit, OnModuleDestroy {
     return { departmentId: row.department_id, code, lifecycle: row.lifecycle, created: row.inserted };
   }
 
-  /** Nhịp tim: lỗi CSDL trung tâm trả 503 (node giữ nhịp tim, không đăng ký lại). */
+  /** Nhịp tim: đang nghỉ thì 503 ngay; lỗi CSDL trung tâm trả 503 (node giữ nhịp tim, không đăng ký lại). */
   async heartbeat(code: string) {
+    if (this.snapshots.inCooldown) throw this.centralDownError();
     try {
-      return await this.heartbeatInner(code);
+      const out = await this.heartbeatInner(code);
+      this.snapshots.markUp();
+      return out;
     } catch (err) {
       throw this.toCentralError(err);
     }
