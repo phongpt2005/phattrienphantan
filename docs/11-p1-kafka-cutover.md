@@ -9,7 +9,7 @@ Trạng thái: **đã chuẩn bị, CHƯA thi công**. Tài liệu này hiệu c
 | C1 | RAM trống của Windows đủ cho 3 broker | **Chưa thỏa**: còn ~0,8 GB trên 15,6 GB | `Win32_OperatingSystem`; khi bận, broker đã bị `REQUEST_TIMED_OUT` và bầu lại leader |
 | C2 | Có cửa sổ bảo trì được thông báo | Chờ quyết định | Ước tính dừng CDC và chỉ mục khoảng **10 phút**, không phải 15–30 giây như đặc tả |
 | C3 | Sao lưu log Kafka hiện tại ra ngoài container | Đã làm một phần | `docker cp kafka:/tmp/kafka-logs` vào thư mục scratchpad; kiểm tra đầy đủ trước khi cutover |
-| C4 | Projector có cơ chế tự phục hồi khi topic bị tạo lại | **Chưa có** (xem mục 4) | `GREATEST` trong upsert tiến độ không bao giờ hạ offset |
+| C4 | Projector có cơ chế tự phục hồi khi topic bị tạo lại | **Đã đạt** (P0.6, commit `c4ff399`) | `projector-epoch-test.sh` 18/18; đã xảy ra thật ngày 19/11: tiến độ 5 ≥ log-end 2 của SALES p0 được đọc lại và hội tụ, chỉ mục khớp node |
 
 ## 2. Phát hiện làm thay đổi đặc tả
 

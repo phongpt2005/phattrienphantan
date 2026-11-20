@@ -2,6 +2,10 @@
 # Project: Distributed Document Management System (DMS Enterprise)
 # Standard: Meta Astryx Open-Source Enterprise Design Rules (meta/astryx)
 
+> **BẮT BUỘC:** trước mọi tác vụ trong dự án này, đọc skill `.claude/skills/dms-engineering-principles/SKILL.md` (chính trực, phản biện có căn cứ, mọi sự cố phân tán đều có phương án đã kiểm thử, an toàn dữ liệu).
+> **BẮT BUỘC khi người dùng phản hồi hoặc đề xuất:** đọc skill `.claude/skills/plan-before-code/SKILL.md`, cùng người dùng chốt kế hoạch tốt nhất trước, chỉ viết mã sau khi có xác nhận chốt.
+> **BẮT BUỘC mọi tác vụ:** đọc đầu tiên `.claude/skills/dms-lessons-and-skill-index/SKILL.md` (chỉ mục skill, quy trình chuẩn, bài học); khi chẩn đoán sự cố đọc `.claude/skills/dms-incident-playbook/SKILL.md`; khi ghi tiến trình đọc `.claude/skills/dms-progress-tracking/SKILL.md` và cập nhật `docs/12-nhat-ky-tien-trinh.md`.
+
 This document establishes the canonical, deterministic rules and behavioral constraints for all AI coding agents working on this codebase. Agents MUST strictly adhere to these rules without exception.
 
 ---
