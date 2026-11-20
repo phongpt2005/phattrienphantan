@@ -22,6 +22,7 @@ import { ServiceTokenGuard } from '@dms/common';
 import { InternalSearchRequest, LocalSearchService } from './local-search.service';
 import { OutboxService } from '../outbox/outbox.service';
 import { FileService } from '../file/file.service';
+import { FileIntegrityService } from '../file/integrity.service';
 import { AuditService } from '../audit/audit.service';
 import { SharesService } from '../share/shares.service';
 
@@ -42,6 +43,7 @@ export class InternalController {
     private readonly audit: AuditService,
     private readonly prisma: PrismaClient,
     private readonly shares: SharesService,
+    private readonly integrity: FileIntegrityService,
   ) {}
 
   /** Federated search: tìm trong DB của node này. */
@@ -77,6 +79,18 @@ export class InternalController {
   @Get('digest')
   async digest() {
     return this.outbox.digest();
+  }
+
+  /** Trạng thái và kết quả lượt quét toàn vẹn tệp gần nhất (N4). */
+  @Get('integrity')
+  integrityStatus() {
+    return this.integrity.status();
+  }
+
+  /** Yêu cầu một lượt quét toàn vẹn ngay (chạy nền). */
+  @Post('integrity/scan')
+  integrityScan() {
+    return { started: this.integrity.start() };
   }
 
   /**

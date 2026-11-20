@@ -7,6 +7,7 @@ import { DocumentService } from './modules/document/document.service';
 import { CategoryController } from './modules/category/category.controller';
 import { CategoryService } from './modules/category/category.service';
 import { FileService } from './modules/file/file.service';
+import { FileIntegrityService } from './modules/file/integrity.service';
 import { AuditService } from './modules/audit/audit.service';
 import { AuditController } from './modules/audit/audit.controller';
 import { OutboxService } from './modules/outbox/outbox.service';
@@ -41,6 +42,7 @@ import { AuthModule } from './modules/auth/auth.module';
       inject: [ResilientDatabaseService],
     },
     FileService,
+    FileIntegrityService,
     AuditService,
     CategoryService,
     OutboxService,
