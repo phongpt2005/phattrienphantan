@@ -1,0 +1,20 @@
+groups:
+  - name: dms
+    rules:
+      - alert: DepartmentNodeDown
+        expr: up{job="dms-departments"} == 0
+        for: 20s
+        labels: {severity: critical}
+        annotations:
+          summary: "Node phòng {{ $labels.department }} không trả lời metrics"
+      - alert: SearchUsingFallback
+        expr: sum by (node) (rate(dms_search_fallback_total[1m])) > 0
+        for: 10s
+        labels: {severity: warning}
+        annotations:
+          summary: "Truy vấn liên hợp đang dùng Central Index thay cho node {{ $labels.node }}"
+      - alert: ProjectorDeadLetter
+        expr: increase(dms_cdc_events_processed_total{status="dlq"}[5m]) > 0
+        labels: {severity: critical}
+        annotations:
+          summary: "Có sự kiện đồng bộ rơi vào DLQ (phòng {{ $labels.department }})"

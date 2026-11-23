@@ -1,0 +1,172 @@
+// ============================================================
+// PRISMA SCHEMA - CÁC NODE PHÒNG BAN (HR, ACCOUNTING, ...)
+// ============================================================
+// Ánh xạ 1:1 với schema node v2 (infrastructure/postgres/init-scripts/node/01-schema.sql)
+// ============================================================
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Category {
+  categoryId  Int        @id @default(autoincrement()) @map("category_id")
+  parentId    Int?       @map("parent_id")
+  name        String     @db.VarChar(100)
+  description String?    @db.VarChar(255)
+  parent      Category?  @relation("CategoryHierarchy", fields: [parentId], references: [categoryId], onDelete: SetNull)
+  children    Category[] @relation("CategoryHierarchy")
+  documents   Document[]
+
+  @@index([parentId], map: "idx_category_parent")
+  @@map("category")
+}
+
+model Tag {
+  tagId        Int           @id @default(autoincrement()) @map("tag_id")
+  tagName      String        @unique @map("tag_name") @db.VarChar(50)
+  documentTags DocumentTag[]
+
+  @@map("tag")
+}
+
+model LocalUser {
+  userId            BigInt             @id @default(autoincrement()) @map("user_id")
+  username          String             @unique @db.VarChar(50)
+  fullName          String             @map("full_name") @db.VarChar(100)
+  email             String?            @db.VarChar(100)
+  passwordHash      String?            @map("password_hash") @db.VarChar(255)
+  role              String             @default("STAFF") @db.VarChar(20)
+  status            String             @default("ACTIVE") @db.VarChar(10)
+  /// Tăng khi thu hồi token. JWT mang giá trị lúc cấp; gateway từ chối token có tv nhỏ hơn giá trị đã thu hồi.
+  tokenVersion      Int                @default(0) @map("token_version")
+  documents         Document[]         @relation("DocumentCreator")
+  documentVersions  DocumentVersion[]  @relation("VersionCreator")
+  accessPermissions AccessPermission[]
+  auditLogs         AuditLog[]
+
+  @@index([username], map: "idx_local_user_username")
+  @@index([status], map: "idx_local_user_status")
+  @@map("local_user")
+}
+
+model Document {
+  docId             BigInt             @id @default(autoincrement()) @map("doc_id")
+  title             String             @db.VarChar(255)
+  description       String?            @db.VarChar(1000)
+  categoryId        Int?               @map("category_id")
+  createdBy         BigInt             @map("created_by")
+  currentVersion    Int                @default(1) @map("current_version")
+  status            String             @default("DRAFT") @db.VarChar(20)
+  accessLevel       String             @default("DEPARTMENT") @map("access_level") @db.VarChar(20)
+  createdAt         DateTime           @default(now()) @map("created_at") @db.Timestamp(6)
+  updatedAt         DateTime?          @map("updated_at") @db.Timestamp(6)
+  rowVersion        BigInt             @default(1) @map("row_version")
+  category          Category?          @relation(fields: [categoryId], references: [categoryId], onDelete: SetNull)
+  creator           LocalUser          @relation("DocumentCreator", fields: [createdBy], references: [userId])
+  versions          DocumentVersion[]
+  documentTags      DocumentTag[]
+  accessPermissions AccessPermission[]
+  auditLogs         AuditLog[]
+
+  @@index([status], map: "idx_document_status")
+  @@index([categoryId], map: "idx_document_category")
+  @@index([createdBy], map: "idx_document_created_by")
+  @@index([createdAt], map: "idx_document_created_at")
+  @@index([updatedAt], map: "idx_document_updated_at")
+  @@map("document")
+}
+
+model FileObject {
+  fileId         BigInt            @id @default(autoincrement()) @map("file_id")
+  fileName       String            @map("file_name") @db.VarChar(255)
+  storagePath    String            @unique @map("storage_path") @db.VarChar(500)
+  mimeType       String            @map("mime_type") @db.VarChar(100)
+  sizeBytes      BigInt            @map("size_bytes")
+  checksumSha256 String            @map("checksum_sha256") @db.Char(64)
+  uploadedAt     DateTime          @default(now()) @map("uploaded_at") @db.Timestamp(6)
+  versions       DocumentVersion[]
+
+  @@index([mimeType], map: "idx_file_object_mime")
+  @@map("file_object")
+}
+
+model DocumentVersion {
+  versionId  BigInt     @id @default(autoincrement()) @map("version_id")
+  docId      BigInt     @map("doc_id")
+  versionNo  Int        @map("version_no")
+  fileId     BigInt     @map("file_id")
+  changeNote String?    @map("change_note") @db.VarChar(500)
+  createdBy  BigInt?    @map("created_by")
+  createdAt  DateTime   @default(now()) @map("created_at") @db.Timestamp(6)
+  document   Document   @relation(fields: [docId], references: [docId], onDelete: Cascade)
+  file       FileObject @relation(fields: [fileId], references: [fileId])
+  creator    LocalUser? @relation("VersionCreator", fields: [createdBy], references: [userId])
+
+  @@unique([docId, versionNo], map: "uq_doc_version")
+  @@index([docId], map: "idx_docversion_doc")
+  @@map("document_version")
+}
+
+model DocumentTag {
+  docId    BigInt   @map("doc_id")
+  tagId    Int      @map("tag_id")
+  document Document @relation(fields: [docId], references: [docId], onDelete: Cascade)
+  tag      Tag      @relation(fields: [tagId], references: [tagId], onDelete: Cascade)
+
+  @@id([docId, tagId])
+  @@map("document_tag")
+}
+
+model AccessPermission {
+  permissionId    BigInt    @id @default(autoincrement()) @map("permission_id")
+  docId           BigInt    @map("doc_id")
+  userId          BigInt    @map("user_id")
+  permissionLevel String    @map("permission_level") @db.VarChar(10)
+  grantedAt       DateTime  @default(now()) @map("granted_at") @db.Timestamp(6)
+  document        Document  @relation(fields: [docId], references: [docId], onDelete: Cascade)
+  user            LocalUser @relation(fields: [userId], references: [userId])
+
+  @@unique([docId, userId], map: "uq_doc_user_perm")
+  @@index([docId], map: "idx_access_perm_doc")
+  @@index([userId], map: "idx_access_perm_user")
+  @@map("access_permission")
+}
+
+model AuditLog {
+  logId     BigInt     @id @default(autoincrement()) @map("log_id")
+  userId    BigInt?    @map("user_id")
+  docId     BigInt?    @map("doc_id")
+  action    String     @db.VarChar(20)
+  detail    String?    @db.VarChar(500)
+  ipAddress String?    @map("ip_address") @db.VarChar(45)
+  createdAt DateTime   @default(now()) @map("created_at") @db.Timestamp(6)
+  user      LocalUser? @relation(fields: [userId], references: [userId])
+  document  Document?  @relation(fields: [docId], references: [docId], onDelete: SetNull)
+
+  @@index([userId], map: "idx_audit_user")
+  @@index([docId], map: "idx_audit_doc")
+  @@index([action], map: "idx_audit_action")
+  @@index([createdAt], map: "idx_audit_created")
+  @@map("audit_log")
+}
+
+// Transactional Outbox: ghi CÙNG transaction với thay đổi nghiệp vụ.
+// Debezium (Outbox Event Router) đọc WAL của bảng này và đẩy lên Kafka.
+model Outbox {
+  eventId       String   @id @default(dbgenerated("gen_random_uuid()")) @map("event_id") @db.Uuid
+  aggregateType String   @map("aggregate_type") @db.VarChar(40)
+  aggregateId   String   @map("aggregate_id") @db.VarChar(100)
+  eventType     String   @map("event_type") @db.VarChar(60)
+  schemaVersion Int      @default(1) @map("schema_version") @db.SmallInt
+  payload       Json
+  traceId       String?  @map("trace_id") @db.VarChar(55)
+  occurredAt    DateTime @default(now()) @map("occurred_at") @db.Timestamptz(6)
+
+  @@index([occurredAt], map: "idx_outbox_occurred")
+  @@map("outbox")
+}
