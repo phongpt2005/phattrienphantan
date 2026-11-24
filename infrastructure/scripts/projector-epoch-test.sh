@@ -17,7 +17,10 @@ ok()  { PASS=$((PASS+1)); printf "  \033[32mPASS\033[0m %s\n" "$1"; }
 bad() { FAIL=$((FAIL+1)); printf "  \033[31mFAIL\033[0m %s\n" "$1"; }
 chk() { if [ "$2" = "$3" ]; then ok "$1 ($2)"; else bad "$1 (nhan '$2', mong doi '$3')"; fi; }
 CDB() { docker exec postgres-central-primary psql -U "$POSTGRES_CENTRAL_USER" -d "$POSTGRES_CENTRAL_DB" -tAc "$1"; }
-LOGEND() { docker exec kafka /opt/kafka/bin/kafka-get-offsets.sh --bootstrap-server localhost:9092 --topic "$1" --time -1 | awk -F: -v p="$2" '$2==p {print $3}'; }
+# P1 B1: công cụ Kafka chạy trong container tạm trên dms-network (không exec vào broker: JVM thứ hai có thể vượt giới hạn 512 MB)
+KBS="kafka-1:9092,kafka-2:9092,kafka-3:9092"
+kt() { local tool=$1; shift; docker run --rm -i --network dms-network -e KAFKA_HEAP_OPTS="-Xmx96m" --entrypoint "/opt/kafka/bin/$tool" apache/kafka:3.7.0 "$@"; }
+LOGEND() { kt kafka-get-offsets.sh --bootstrap-server "$KBS" --topic "$1" --time -1 | awk -F: -v p="$2" '$2==p {print $3}'; }
 restart_search() {
   docker restart distributed-dms-search-engine-service-1 distributed-dms-search-engine-service-2 >/dev/null
   for i in $(seq 1 60); do
@@ -47,7 +50,7 @@ snapshot_progress() {
 }
 # So partition con lag khac 0. Partition chua co tin (CURRENT "-", LOG-END 0) khong co lag nen khong tinh.
 lag_all_zero() {
-  docker exec kafka /opt/kafka/bin/kafka-consumer-groups.sh --bootstrap-server localhost:9092 --describe --group index-projector 2>/dev/null \
+  kt kafka-consumer-groups.sh --bootstrap-server "$KBS" --describe --group index-projector 2>/dev/null \
     | awk '/dms.dept/ { if ($4=="-" && $5==0) next; if ($6!=0) n++ } END { print n+0 }'
 }
 docs_count() { CDB "select count(*) from search_document s join department d using(department_id) where d.dept_code='$1'"; }
@@ -55,7 +58,7 @@ docs_count() { CDB "select count(*) from search_document s join department d usi
 # thuoc topic con ton tai trong Kafka (loai dong tien do cu cua topic da khong con, vd legal).
 expect_set() {
   local topics
-  topics=$(docker exec kafka /opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --list 2>/dev/null \
+  topics=$(kt kafka-topics.sh --bootstrap-server "$KBS" --list 2>/dev/null \
     | grep -E '^dms\.dept\..+\.document$' | sed "s/.*/'&'/" | paste -sd, -)
   CDB "select topic||':'||partition_id from cdc_partition_progress where last_offset >= 0 and last_fingerprint is not null and topic in (${topics:-''})" | LC_ALL=C sort -u
 }

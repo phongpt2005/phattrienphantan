@@ -2,7 +2,9 @@
 # ============================================================
 # SAO LƯU LOG KAFKA RA NGOÀI CONTAINER (P1 / C3).
 #   bash infrastructure/scripts/backup-kafka-logs.sh
-# Lý do: log topic nằm trong /tmp của container kafka (compose không đặt KAFKA_LOG_DIRS), nên tạo lại container là MẤT log.
+# Từ P1 B1: log nằm trên volume của từng broker (KAFKA_LOG_DIRS=/var/lib/kafka/data). Với RF = 3, mỗi broker giữ bản sao
+# của mọi partition, nên chụp một broker là đủ (mặc định kafka-1; đổi bằng KAFKA_BACKUP_BROKER, KAFKA_BACKUP_LOGDIR).
+# Broker đơn cũ (trước P1 B1) ghi log trong /tmp/kafka-logs: KAFKA_BACKUP_BROKER=kafka KAFKA_BACKUP_LOGDIR=/tmp/kafka-logs.
 # Đích: %USERPROFILE%\OneDrive\dms_backups\kafka_<YYYYMMDD_HHMMSS>\
 # Mã hóa AES-256-CBC (PBKDF2, 200000 vòng) bằng BACKUP_ENCRYPTION_KEY trong .env. Thiếu khóa thì DỪNG.
 # manifest.txt ghi SHA-256 và kích thước của TỪNG TỆP GỐC (trước khi mã hóa), để restore-test đối chiếu từng tệp.
@@ -32,21 +34,30 @@ TMP=$(mktemp -d)
 trap 'rm -rf "$TMP"' EXIT
 TMPW="$(cygpath -m "$TMP")"   # docker là tiến trình Windows: cần đường dẫn Windows
 
-if ! docker cp kafka:/tmp/kafka-logs "$TMPW/"; then
-  echo "LỖI docker cp từ container kafka"; exit 1
+BROKER="${KAFKA_BACKUP_BROKER:-kafka-1}"
+LOGDIR="${KAFKA_BACKUP_LOGDIR:-/var/lib/kafka/data}"
+KIMG="$(docker inspect -f '{{.Config.Image}}' "$BROKER" 2>/dev/null || echo apache/kafka:3.7.0)"
+# Công cụ Kafka chạy trong container tạm trên dms-network, không exec vào broker (JVM thứ hai có thể vượt giới hạn bộ nhớ)
+kt() { local tool=$1; shift; docker run --rm --network dms-network -e KAFKA_HEAP_OPTS="-Xmx96m" --entrypoint "/opt/kafka/bin/$tool" "$KIMG" "$@"; }
+KBS="${KAFKA_BACKUP_BOOTSTRAP:-kafka-1:9092,kafka-2:9092,kafka-3:9092}"
+
+# Đích chưa tồn tại: docker cp tạo thư mục kafka-logs chứa nội dung LOGDIR (giữ tên kafka-logs cho restore-test)
+if ! docker cp "$BROKER:$LOGDIR" "$TMPW/kafka-logs"; then
+  echo "LỖI docker cp $BROKER:$LOGDIR"; exit 1
 fi
 
 MANIFEST="$DEST/manifest.txt"
 {
   echo "# DMS Kafka log backup $STAMP (UTC: $(date -u +%Y-%m-%dT%H:%M:%SZ))"
   echo "# encrypted: aes-256-cbc, pbkdf2, iter 200000; hot copy taken while the broker was running"
+  echo "# source: $BROKER:$LOGDIR"
   echo "# file <sha256> <size> <relpath>"
   (cd "$TMP/kafka-logs" && find . -type f | sort | while read -r f; do
      echo "file $(sha256sum "$f" | awk '{print $1}') $(stat -c %s "$f") ${f#./}"
    done)
   echo "# topic log-end offsets at backup time"
-  docker exec kafka /opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --list 2>/dev/null | grep -E '^dms\.' | while read -r t; do
-    docker exec kafka /opt/kafka/bin/kafka-get-offsets.sh --bootstrap-server localhost:9092 --topic "$t" --time -1 2>/dev/null | sed 's/^/offset /'
+  kt kafka-topics.sh --bootstrap-server "$KBS" --list 2>/dev/null | grep -E '^dms\.' | while read -r t; do
+    kt kafka-get-offsets.sh --bootstrap-server "$KBS" --topic "$t" --time -1 2>/dev/null | sed 's/^/offset /'
   done
 } > "$MANIFEST"
 

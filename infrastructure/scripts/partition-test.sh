@@ -100,7 +100,8 @@ CUR_VER=$(CEN "select s.source_version from search_document s join department d 
 DOCID=$(CEN "select s.source_doc_id from search_document s join department d using(department_id) where d.dept_code='HR' and s.title='${TITLES[0]}'")
 STALE_TITLE="STALE-$STAMP"
 printf '%s|{"documentId":%s,"departmentCode":"HR","title":"%s","status":"PUBLISHED","rowVersion":%s,"deleted":false,"accessLevel":"DEPARTMENT","tags":[],"shares":[]}\n' "$DOCID" "$DOCID" "$STALE_TITLE" "$(( ${CUR_VER:-1} - 1 ))" \
-  | docker exec -i kafka /opt/kafka/bin/kafka-console-producer.sh --bootstrap-server localhost:9092 --topic dms.dept.hr.document --property parse.key=true --property key.separator='|' >/dev/null 2>&1
+  | MSYS_NO_PATHCONV=1 docker run --rm -i --network dms-network -e KAFKA_HEAP_OPTS="-Xmx96m" --entrypoint /opt/kafka/bin/kafka-console-producer.sh apache/kafka:3.7.0 \
+      --bootstrap-server kafka-1:9092,kafka-2:9092,kafka-3:9092 --topic dms.dept.hr.document --property parse.key=true --property key.separator='|' >/dev/null 2>&1
 sleep 8
 chk "sự kiện cũ (rowVersion thấp hơn) bị bỏ qua, tiêu đề không bị ghi đè" "$(CEN "select count(*) from search_document where source_doc_id=$DOCID and title like 'STALE-%'")" 0
 chk "source_version vẫn là phiên bản mới nhất" "$(CEN "select source_version from search_document s join department d using(department_id) where d.dept_code='HR' and s.source_doc_id=$DOCID")" "$CUR_VER"

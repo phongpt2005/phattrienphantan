@@ -51,7 +51,7 @@ done < "$LATEST/manifest.txt"
 echo "đối chiếu SHA-256 từng tệp: khớp $PASS, khác/thiếu $FAIL"
 
 # Đọc thử một segment có dữ liệu bằng kafka-dump-log trong container dùng một lần
-IMG="$(docker inspect -f '{{.Config.Image}}' kafka)"
+IMG="$(docker inspect -f '{{.Config.Image}}' kafka-1 2>/dev/null || echo apache/kafka:3.7.0)"
 SEG_ABS=$(find "$TMP/kafka-logs" -name '*.log' -size +0 | sort | head -n 1)
 SEG_REL="${SEG_ABS#$TMP/}"
 DUMP_OUT=$(docker run --rm -v "$TMPW":/data --entrypoint /opt/kafka/bin/kafka-dump-log.sh "$IMG" --files "/data/$SEG_REL" --print-data-log 2>&1)

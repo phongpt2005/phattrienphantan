@@ -45,6 +45,48 @@ x-department-service: &department-service
       limits:
         memory: 384M
 
+# P1 B1 (bản gọn): cấu hình chung cho 3 broker Kafka KRaft (mỗi nút vừa là broker vừa là controller).
+# RF = 3, min.insync.replicas = 2: mất 1 broker vẫn ghi (acks=all) và đọc được; mất 2 broker thì mất quorum.
+# Log nằm trên volume (KAFKA_LOG_DIRS), không còn trong /tmp của container như broker cũ.
+x-kafka-env: &kafka-env
+  KAFKA_PROCESS_ROLES: broker,controller
+  KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka-1:${KAFKA_CONTROLLER_PORT},2@kafka-2:${KAFKA_CONTROLLER_PORT},3@kafka-3:${KAFKA_CONTROLLER_PORT}
+  KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:${KAFKA_BROKER_PORT},CONTROLLER://0.0.0.0:${KAFKA_CONTROLLER_PORT}
+  KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT
+  KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+  KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+  CLUSTER_ID: 'bNtrSG9DQyOb3bTosps6tw'
+  KAFKA_LOG_DIRS: /var/lib/kafka/data
+  KAFKA_DEFAULT_REPLICATION_FACTOR: 3
+  KAFKA_MIN_INSYNC_REPLICAS: 2
+  KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 3
+  KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 3
+  KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 2
+  KAFKA_NUM_PARTITIONS: 3
+  KAFKA_LOG_RETENTION_HOURS: 168
+  KAFKA_LOG_SEGMENT_BYTES: 1073741824
+  KAFKA_LOG_RETENTION_CHECK_INTERVAL_MS: 300000
+  # Bản gọn: heap 256 MB, chặn metaspace, direct memory và code cache để vừa giới hạn 512 MB
+  KAFKA_HEAP_OPTS: "-Xms256m -Xmx256m"
+  KAFKA_JVM_PERFORMANCE_OPTS: "-server -XX:+UseG1GC -XX:MaxGCPauseMillis=20 -XX:InitiatingHeapOccupancyPercent=35 -XX:+ExplicitGCInvokesConcurrent -Djava.awt.headless=true -XX:MaxMetaspaceSize=128m -XX:MaxDirectMemorySize=128m -XX:ReservedCodeCacheSize=64m"
+
+x-kafka-broker: &kafka-broker
+  image: apache/kafka:3.7.0
+  restart: unless-stopped
+  # Healthcheck bằng nc: không mở thêm một JVM mỗi lần kiểm (JVM thứ hai có thể đẩy broker vượt 512 MB)
+  healthcheck:
+    test: ["CMD-SHELL", "nc -z localhost ${KAFKA_BROKER_PORT}"]
+    interval: 15s
+    timeout: 5s
+    retries: 10
+    start_period: 30s
+  networks:
+    - dms-network
+  deploy:
+    resources:
+      limits:
+        memory: 512M
+
 services:
 
   # ================================================================
@@ -363,9 +405,12 @@ services:
   # ================================================================
   #                APACHE KAFKA (KRaft - Không cần Zookeeper)
   # ================================================================
+  # Broker đơn cũ: chỉ giữ để quay lui sau cutover P1 B1 (profile kafka-legacy, không chạy mặc định).
+  # Quay lui: dừng kafka-1..3, `docker start kafka`, trả BOOTSTRAP/KAFKA_BROKERS về kafka:9092 (xem docs/11).
   kafka:
     image: apache/kafka:3.7.0
     container_name: kafka
+    profiles: ["kafka-legacy"]
     restart: unless-stopped
     environment:
       # --- KRaft Configuration ---
@@ -409,6 +454,39 @@ services:
           memory: 1024M
 
   # ================================================================
+  #   P1 B1 (bản gọn): cụm Kafka 3 broker KRaft
+  # ================================================================
+  kafka-1:
+    <<: *kafka-broker
+    container_name: kafka-1
+    environment:
+      <<: *kafka-env
+      KAFKA_NODE_ID: 1
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka-1:${KAFKA_BROKER_PORT}
+    volumes:
+      - kafka-1-data:/var/lib/kafka/data
+
+  kafka-2:
+    <<: *kafka-broker
+    container_name: kafka-2
+    environment:
+      <<: *kafka-env
+      KAFKA_NODE_ID: 2
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka-2:${KAFKA_BROKER_PORT}
+    volumes:
+      - kafka-2-data:/var/lib/kafka/data
+
+  kafka-3:
+    <<: *kafka-broker
+    container_name: kafka-3
+    environment:
+      <<: *kafka-env
+      KAFKA_NODE_ID: 3
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka-3:${KAFKA_BROKER_PORT}
+    volumes:
+      - kafka-3-data:/var/lib/kafka/data
+
+  # ================================================================
   #              DEBEZIUM - KAFKA CONNECT (CDC Pipeline)
   # ================================================================
   debezium:
@@ -420,16 +498,22 @@ services:
       CONFIG_STORAGE_TOPIC: debezium_configs
       OFFSET_STORAGE_TOPIC: debezium_offsets
       STATUS_STORAGE_TOPIC: debezium_statuses
-      BOOTSTRAP_SERVERS: kafka:${KAFKA_BROKER_PORT}
+      BOOTSTRAP_SERVERS: kafka-1:${KAFKA_BROKER_PORT},kafka-2:${KAFKA_BROKER_PORT},kafka-3:${KAFKA_BROKER_PORT}
       # Danh tính ổn định theo tên (mặc định là IP container, đổi sau mỗi lần tạo lại -> connector kẹt UNASSIGNED)
       ADVERTISED_HOST_NAME: debezium
 
-      # Replication factor = 1 cho dev (single broker)
-      CONFIG_STORAGE_REPLICATION_FACTOR: 1
-      OFFSET_STORAGE_REPLICATION_FACTOR: 1
-      STATUS_STORAGE_REPLICATION_FACTOR: 1
+      # P1 B1: ba topic trạng thái của Connect nhân bản RF = 3 (bản gọn: vẫn 1 worker Debezium).
+      # Phải có tiền tố CONNECT_: entrypoint của image chỉ chuyển biến CONNECT_* thành cấu hình worker
+      # (biến CONFIG_STORAGE_REPLICATION_FACTOR cũ không có tác dụng, RF = 1 lấy từ tệp mặc định của image).
+      CONNECT_CONFIG_STORAGE_REPLICATION_FACTOR: 3
+      CONNECT_OFFSET_STORAGE_REPLICATION_FACTOR: 3
+      CONNECT_STATUS_STORAGE_REPLICATION_FACTOR: 3
     depends_on:
-      kafka:
+      kafka-1:
+        condition: service_healthy
+      kafka-2:
+        condition: service_healthy
+      kafka-3:
         condition: service_healthy
       postgres-hr-primary:
         condition: service_healthy
@@ -463,7 +547,6 @@ services:
       - ./frontend/dist:/usr/share/nginx/html:ro
       - nginx-logs:/var/log/nginx
     depends_on:
-      - kafka
       - redis
     healthcheck:
       test: ["CMD", "nginx", "-t"]
@@ -566,7 +649,7 @@ services:
       PORT: 3003
       NODE_ENV: production
       DATABASE_URL: postgresql://${POSTGRES_CENTRAL_USER}:${POSTGRES_CENTRAL_PASSWORD}@postgres-central-primary:5432/${POSTGRES_CENTRAL_DB}
-      KAFKA_BROKERS: kafka:9092
+      KAFKA_BROKERS: kafka-1:9092,kafka-2:9092,kafka-3:9092
       KAFKA_GROUP_ID: index-projector
       REDIS_HOST: redis
       REDIS_PORT: 6379
@@ -583,7 +666,7 @@ services:
     depends_on:
       postgres-central-primary:
         condition: service_healthy
-      kafka:
+      kafka-1:
         condition: service_healthy
       redis:
         condition: service_healthy
@@ -607,12 +690,12 @@ services:
     image: dms/content-worker:2.0
     restart: unless-stopped
     environment:
-      KAFKA_BROKERS: kafka:9092
+      KAFKA_BROKERS: kafka-1:9092,kafka-2:9092,kafka-3:9092
       KAFKA_GROUP_ID: content-indexer
       REGISTRY_URL: http://search-engine-service:3003
       INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN}
     depends_on:
-      kafka:
+      kafka-1:
         condition: service_healthy
     networks:
       - dms-network
@@ -726,9 +809,11 @@ services:
     container_name: kafka-exporter
     restart: unless-stopped
     command:
-      - '--kafka.server=kafka:${KAFKA_BROKER_PORT}'
+      - '--kafka.server=kafka-1:${KAFKA_BROKER_PORT}'
+      - '--kafka.server=kafka-2:${KAFKA_BROKER_PORT}'
+      - '--kafka.server=kafka-3:${KAFKA_BROKER_PORT}'
     depends_on:
-      kafka:
+      kafka-1:
         condition: service_healthy
     networks:
       - dms-network
@@ -829,9 +914,16 @@ volumes:
   redis-data:
     name: dms-redis-data
 
-  # Kafka Data
+  # Kafka Data (volume của broker cũ, profile kafka-legacy)
   kafka-data:
     name: dms-kafka-data
+  # P1 B1: log của từng broker trong cụm 3 nút
+  kafka-1-data:
+    name: dms-kafka-1-data
+  kafka-2-data:
+    name: dms-kafka-2-data
+  kafka-3-data:
+    name: dms-kafka-3-data
 
   # Nginx Logs
   nginx-logs:
