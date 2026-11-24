@@ -1,14 +1,14 @@
 # 04. Mô hình triển khai
 
-> **Cập nhật 2026-11-17:** Kubernetes đã được gỡ khỏi dự án theo yêu cầu (máy có RAM hạn chế). Phần Kubernetes dưới đây là thiết kế tham khảo, không còn được triển khai. Mọi kiểm thử và demo chạy trên Docker Compose.
+> **Cập nhật 2026-11-17:** Kubernetes đã được gỡ khỏi dự án theo yêu cầu (môi trường phát triển có tài nguyên hạn chế). Phần Kubernetes dưới đây là thiết kế tham khảo, không còn được triển khai. Mọi kiểm thử và demo chạy trên Docker Compose.
 >
 > **Lưu ý:** tài liệu này mô tả **thiết kế đích**. **Đã triển khai: Docker Compose (mục 5). Chưa triển khai: Kubernetes/Helm, quan sát (Loki/Tempo).** Chi tiết: [07-implementation-status.md](07-implementation-status.md).
 
 Hệ thống được triển khai ở hai môi trường, dùng **cùng một image** và **cùng một hợp đồng cấu hình**:
 
-| Môi trường | Mục đích | Công cụ chính | RAM cần |
+| Môi trường | Mục đích | Công cụ chính | Tài nguyên cần |
 |---|---|---|---|
-| **Dev**: Docker Compose | Lập trình viên chạy trên laptop, debug nhanh | Compose v2 dùng *project name* và *env file* cho từng phòng ban | ~6 GB (2 phòng ban) |
+| **Dev**: Docker Compose | Lập trình viên chạy cục bộ, debug nhanh | Compose v2 dùng *project name* và *env file* cho từng phòng ban | ~6 GB (2 phòng ban) |
 | **Demo/Prod-like**: Kubernetes | Bảo vệ đề tài: HA, failover, onboarding bằng một lệnh | kind/minikube, Helm, **CloudNativePG**, **Strimzi**, MinIO Operator, Keycloak, kube-prometheus-stack, Loki, Tempo | 12–16 GB (3 phòng ban) |
 
 ## 1. Topology triển khai trên Kubernetes
@@ -290,7 +290,7 @@ infrastructure/postgres/init-scripts/{node,central}/01-schema.sql
 infrastructure/scripts/{apply-schema.sh,e2e-smoke.sh}
 ```
 
-Khởi động (Windows + Docker Desktop: `docker compose build` có thể lỗi gRPC của bake, nên build image bằng `docker build`):
+Khởi động (nên build image bằng `docker build`, vì `docker compose build` có thể lỗi ở bước bake):
 
 ```bash
 docker build -f services/department-service/Dockerfile    -t dms/department-service:2.0 .
@@ -319,7 +319,7 @@ bash infrastructure/scripts/e2e-smoke.sh          # kiểm thử đầu-cuối (
 | App (search, registry, projector, share, dept × 3) | ~12 | 12 × 192 Mi | |
 | Redis Sentinel | 3 | 3 × 128 Mi | |
 | Observability | ~8 | ~2.5 Gi | Prometheus retention 2 ngày |
-| **Tổng** | ~50 | **≈ 14 Gi** | Máy 16 GB: giảm CNPG dept về 2 instance (còn khoảng 11 Gi) |
+| **Tổng** | ~50 | **≈ 14 Gi** | Khi tài nguyên hạn chế: giảm CNPG dept về 2 instance (còn khoảng 11 Gi) |
 
 ## 7. Quan sát hệ thống và cảnh báo
 

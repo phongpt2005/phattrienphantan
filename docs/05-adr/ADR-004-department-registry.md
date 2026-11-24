@@ -21,7 +21,7 @@ Bảng `department` đã có nhưng không ai đọc.
 
 1. Dùng **Registry Service** làm nguồn sự thật duy nhất. Dữ liệu gồm ba bảng: `departments`, `department_endpoints`, `department_health`.
 2. **Node tự đăng ký** khi khởi động bằng `POST /registry/register`, gửi kèm `code`, endpoint, `schema_version` và capabilities. Lời gọi được xác thực bằng service token của Keycloak (client credentials).
-3. **Heartbeat** gửi mỗi 10 s. Bỏ lỡ 3 lần thì node chuyển sang `DEGRADED`. Khi tắt máy có trật tự, node tự chuyển sang `DRAINING`.
+3. **Heartbeat** gửi mỗi 10 s. Bỏ lỡ 3 lần thì node chuyển sang `DEGRADED`. Khi tắt node có trật tự, node tự chuyển sang `DRAINING`.
 4. Registry phát event `DepartmentRegistered` hoặc `DepartmentStateChanged` lên topic `dms.platform.registry`. Search Gateway nghe event này để xóa cache.
 5. Index Projector subscribe Kafka theo **pattern** `^dms\.dept\..+\.document$`. Ánh xạ từ topic sang phòng ban được tra trong `department_endpoints.kafka_topic`.
 6. Gateway và Ingress: mỗi Helm release tự mang theo route `/api/dept/{code}`. Frontend gọi `GET /registry/departments`.

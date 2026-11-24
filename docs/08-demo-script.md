@@ -1,13 +1,13 @@
 # 08. Kịch bản demo (Docker Compose, khoảng 26 phút)
 
 Chuẩn bị: stack đang chạy (`docker compose up -d --no-build`), mở sẵn 3 tab:
-giao diện `http://localhost:8000`, Grafana `http://localhost:3000` (admin / `GRAFANA_ADMIN_PASSWORD` trong `.env`, dashboard **DMS - Federated Search & CDC**), Prometheus `http://localhost:9090/alerts`.
+giao diện `http://localhost:<cổng nginx>`, Grafana `http://localhost:<cổng Grafana>` (admin / `GRAFANA_ADMIN_PASSWORD` trong `.env`, dashboard **DMS - Federated Search & CDC**), Prometheus `http://localhost:<cổng Prometheus>/alerts`.
 Mọi bước dưới đây đã chạy thật; bộ kiểm thử `bash infrastructure/scripts/e2e-smoke.sh` tự động hóa phần lớn chúng (96 kiểm tra).
 
 ## D1. Dữ liệu phân đoạn theo phòng ban (R1) - 2 phút
 1. Đăng nhập `hr_manager`, tạo một tài liệu. Đăng nhập `acc_manager` ở cửa sổ ẩn danh: không thấy tài liệu đó.
 2. Cho xem lệnh: token của HR gọi thẳng node ACC bị chặn.
-   `curl -H "Authorization: Bearer <token HR>" http://localhost:8000/api/dept/acc/documents` → **403**.
+   `curl -H "Authorization: Bearer <token HR>" http://localhost:<cổng nginx>/api/dept/acc/documents` → **403**.
 3. Cho xem hạ tầng: mỗi phòng ban có Postgres và MinIO riêng (`docker ps`).
 
 ## D2. Thêm phòng ban mới không sửa node cũ (R3) - 3 phút
@@ -53,11 +53,11 @@ Chuẩn bị: đăng nhập `acc_manager`, tải lên một tài liệu có ph�
 5. `docker start <bản vừa tắt>`: Grafana hiện lại 2 bản.
 
 ## D8. Nhìn thấy truy vấn liên hợp bằng distributed tracing - 3 phút
-1. Mở Jaeger `http://localhost:16686`, chọn service `search-gateway`, operation `GET /search`, bấm *Find Traces*.
+1. Mở Jaeger `http://localhost:<cổng Jaeger>`, chọn service `search-gateway`, operation `GET /search`, bấm *Find Traces*.
 2. Thực hiện một lần tìm kiếm trên giao diện, mở trace mới nhất: thấy `GET /search` ở trên cùng và ba thanh `federated.query HR/ACC/SALES` **xếp chồng theo thời gian** (chạy song song), bên dưới mỗi thanh là `POST /internal/search` của đúng node đó. Đây là hình ảnh trực tiếp của mô hình scatter-gather.
 3. `docker stop dept-acc`, tìm lại bằng từ khóa khác. Trace mới: thanh `federated.query ACC` màu đỏ, thuộc tính `dms.node.status=FALLBACK`, `dms.fallback.reason=lifecycle=DRAINING`; không còn span của `dept-acc`, thay vào đó là câu `pg.query` vào Central Index.
 4. `docker start dept-acc`.
-5. Mẹo: phản hồi của `GET /api/search` có trường `traceId`, mở thẳng `http://localhost:16686/trace/<traceId>`.
+5. Mẹo: phản hồi của `GET /api/search` có trường `traceId`, mở thẳng `http://localhost:<cổng Jaeger>/trace/<traceId>`.
 
 ## D9. Trang giám sát: biết node sập và phục hồi - 3 phút
 Nên làm phần này **đầu tiên hoặc song song với D3**, vì nó cho thấy toàn cảnh.
@@ -80,14 +80,14 @@ Nên làm phần này **đầu tiên hoặc song song với D3**, vì nó cho th
 
 ## D11. Phòng HR đứt mạng vẫn làm việc, nối lại tự hội tụ - 4 phút
 Chạy: `bash infrastructure/scripts/partition-test.sh` (cắt thật `dms-network` của HR; cuối cùng luôn nối lại).
-1. Cho xem trước: `http://localhost:3001/console` và `curl http://localhost:3001/sync/status` → `mode: ONLINE`.
-2. Script cắt mạng. Đăng nhập và tạo 3 tài liệu, cấp 1 chia sẻ qua `localhost:3001`: vẫn được. Giao diện hiện huy hiệu `CHẾ ĐỘ TỰ TRỊ (OFFLINE)`.
+1. Cho xem trước: `http://localhost:<cổng HR edge>/console` và `curl http://localhost:<cổng HR edge>/sync/status` → `mode: ONLINE`.
+2. Script cắt mạng. Đăng nhập và tạo 3 tài liệu, cấp 1 chia sẻ qua `localhost:<cổng HR edge>`: vẫn được. Giao diện hiện huy hiệu `CHẾ ĐỘ TỰ TRỊ (OFFLINE)`.
 3. Script in backlog WAL chưa gửi (byte) và số sự kiện outbox; trung tâm báo HR `DEGRADED` sau khoảng 30 giây.
 4. Script nối lại (T0). HR về `ACTIVE` trong vài giây; đếm T_convergence đến khi trung tâm thấy đủ tài liệu và chia sẻ.
 5. Script đưa một sự kiện cũ vào Kafka: tiêu đề không bị ghi đè (`source_version` giữ nguyên).
 6. Nói rõ đánh đổi: khi đứt mạng không duyệt được yêu cầu xin quyền mới; bản sao chia sẻ ở trung tâm nhất quán cuối cùng.
 
 ## Phần chưa chứng minh được (nói thẳng với hội đồng)
-- Kubernetes: Helm chart đã viết và lint sạch nhưng **chưa triển khai thử** do máy yếu và mạng tải image chậm (xem `07-implementation-status.md`).
+- Kubernetes: Helm chart đã viết và lint sạch nhưng **chưa triển khai thử** (xem `07-implementation-status.md`).
 - Failover Postgres tự động, Kafka 3 broker: thuộc phần Kubernetes, chưa làm. Redis và Kafka hiện chạy một bản, là hai điểm chết còn lại.
 - Lập chỉ mục nội dung chưa đọc được ảnh quét (OCR), Excel, PowerPoint.

@@ -27,7 +27,7 @@ Kiểm chứng tự động: `bash infrastructure/scripts/e2e-smoke.sh` (72 ki�
 | A8 | CDC thô trên bảng nghiệp vụ | ✅ Đã sửa | Transactional Outbox + Debezium Outbox Event Router; publication chỉ gồm `outbox` |
 | B1 | Consumer nuốt lỗi | ✅ Đã sửa | Retry 3 lần rồi DLQ `dms.dlq.projector`; log `sync_event_log` |
 | B2 | Event cũ ghi đè dữ liệu mới | ✅ Đã sửa | `source_version` (= `row_version` ở node); phát lại trùng bị `SKIPPED` (đã quan sát thực tế) |
-| B3 | Kafka 1 broker, RF=1 | ❌ Chưa | Dev vẫn 1 broker. Không làm trên Compose nếu RAM không cho phép |
+| B3 | Kafka 1 broker, RF=1 | ❌ Chưa | Dev vẫn 1 broker. Không làm trên Compose nếu bộ nhớ không cho phép |
 | B4 | Postgres không tự failover | ❌ Chưa | Cần công cụ tự failover trên Compose (Patroni), chưa làm |
 | B5 | Connector không đăng ký tự động | ✅ Đã sửa | Service `connect-init` đăng ký khi `docker compose up`; `add-department.sh` đăng ký cho phòng mới |
 | B6 | Job hết hạn share chạy trên mọi replica | ❌ Chưa | Câu lệnh là idempotent nên không sai dữ liệu, nhưng chưa dùng lock/CronJob |
@@ -69,7 +69,7 @@ Kiểm chứng tự động: `bash infrastructure/scripts/e2e-smoke.sh` (72 ki�
 | Thông báo xuyên bản | SSE đi qua Redis pub/sub | 8/8 thông báo tới nơi, do hai bản khác nhau phát (3 và 5 lần) |
 | Giám sát | Prometheus phát hiện mọi bản qua DNS; dashboard thêm số bản đang sống, partition của từng worker, việc lập chỉ mục, DLQ | Truy vấn Prometheus có số liệu thật |
 
-| Distributed tracing | OpenTelemetry trong Search Gateway và mọi node, xem trên Jaeger (`http://localhost:16686`); phản hồi tìm kiếm trả `traceId`. [ADR-009](05-adr/ADR-009-distributed-tracing.md) | e2e mục 11: một trace 53 span xuyên qua `search-gateway`, `dept-hr`, `dept-acc`, `dept-sales`; ba span `federated.query` chạy song song. Dừng node ACC: span của ACC báo `FALLBACK`, đánh dấu lỗi, lý do `lifecycle=DRAINING` |
+| Distributed tracing | OpenTelemetry trong Search Gateway và mọi node, xem trên Jaeger (`http://localhost:<cổng Jaeger>`); phản hồi tìm kiếm trả `traceId`. [ADR-009](05-adr/ADR-009-distributed-tracing.md) | e2e mục 11: một trace 53 span xuyên qua `search-gateway`, `dept-hr`, `dept-acc`, `dept-sales`; ba span `federated.query` chạy song song. Dừng node ACC: span của ACC báo `FALLBACK`, đánh dấu lỗi, lý do `lifecycle=DRAINING` |
 
 **Giới hạn còn lại của hai phần này:** truy vấn Prisma tại node và chuỗi Outbox → Kafka → worker chưa nối vào trace; Jaeger lưu trong bộ nhớ; chưa OCR ảnh quét, chưa đọc Excel/PowerPoint (đánh dấu `unsupported`); Redis và Kafka vẫn chạy một bản nên là hai điểm chết còn lại; Helm chart chưa có `content-worker`.
 
@@ -104,7 +104,7 @@ Lỗi dữ liệu phát hiện khi xem trên giao diện thật và đã sửa:
 - **Giờ hiển thị lệch 7 giờ** ở năm cột `timestamp` không kèm múi giờ (giờ đồng bộ, giờ sự kiện, lịch sử tìm kiếm, giờ đăng ký phòng ban): đã chuyển sang `timestamptz` (migration idempotent trong `central/01-schema.sql`). Hạn chia sẻ và yêu cầu xin quyền vốn đã dùng `timestamptz` nên không bị ảnh hưởng.
 - Đoạn "trích nội dung tệp" đôi khi hiện mô tả: nay lấy từ nội dung tệp khi từ khóa khớp trong nội dung.
 - Ban Giám đốc xem tài liệu phòng khác bị gắn nhãn "PHÒNG TÔI SỞ HỮU": nay là "QUYỀN BAN GIÁM ĐỐC".
-- Cụm kind `dms` tự chạy lại sau khi bật máy và chiếm cổng 8000 của cổng vào: đã dừng và đặt không tự khởi động.
+- Cụm kind `dms` tự chạy lại sau khi khởi động lại môi trường và chiếm cổng vào: đã dừng và đặt không tự khởi động.
 
 Thay đổi giao diện kèm theo: thanh bên, tiêu đề và bảng lệnh Ctrl+K viết lại (điều hướng theo vai trò, tài khoản mẫu sinh từ Registry và chỉ hiện khi `VITE_DEMO_LOGIN=true`). Trang "Sơ đồ phân tán 3D" cũ dùng số liệu viết cứng nên đã bỏ khỏi ứng dụng; hai file `TopologyTab.tsx` và `InteractiveTopology3D.tsx` còn nằm trong `frontend/src/components/` nhưng không được dùng (nên xóa tay).
 
@@ -122,22 +122,34 @@ Thay đổi giao diện kèm theo: thanh bên, tiêu đề và bảng lệnh Ctr
 | Node sập oan sau khi Registry khởi động lại | Bị đánh dấu `DEGRADED` | Ân hạn 65 giây, 0 sự cố giả |
 | Chuỗi audit khi ghi đồng thời | Báo đứt oan; HR có 1 nhánh rẽ thật | Thứ tự theo `chain_seq` cấp trong khóa; 200 lần ghi đồng thời vẫn nguyên; sửa lén vẫn bị phát hiện |
 
-## 2p. Hoàn thiện P0 còn mở và các việc P1–P3 làm được khi chưa có RAM (2026-11-20)
+## 2q. P1 B1 bản gọn: cụm Kafka 3 broker (2026-11-24, chưa commit)
+
+| Mục | Nội dung | Kết quả đã kiểm chứng |
+|---|---|---|
+| Cụm 3 broker KRaft | `kafka-1..3` (broker + controller), heap 256 MB, giới hạn 512 MB, RF mặc định 3, `min.insync.replicas=2`, log trên volume; broker cũ giữ dưới profile `kafka-legacy` | Quorum 3 voter; mọi topic RF 3; không partition thiếu bản sao |
+| Debezium | Bootstrap 3 broker; `CONNECT_*_STORAGE_REPLICATION_FACTOR=3` (biến cũ thiếu tiền tố nên chưa từng có tác dụng) | `debezium_configs` 1 partition, ba topic trạng thái compact, RF 3; 3 connector RUNNING |
+| Cutover | Tạm dừng connector, dừng broker cũ, bật cụm mới, tạo lại consumer, `connect-init` đăng ký lại và resync | Digest node khớp trung tâm trước và sau (HR 349, ACC 4, SALES 11); lag 0; projector tự đọc lại, không cần đặt tiến độ tay |
+| Chịu lỗi | `kafka-failover-test.sh` (mới) | 18/18: mất 1 broker vẫn ghi và CDC chạy; mất 2 broker không có ack (`NotEnoughReplicasException`); hồi phục đủ |
+| Hồi quy | `e2e-smoke.sh` | Lần 22: 100 đạt, 0 lỗi |
+
+Còn lại: worker Debezium thứ hai; dọn broker cũ khi người dùng chốt. Chi tiết: `docs/11` mục 6, `docs/12` giai đoạn K.
+
+## 2p. Hoàn thiện P0 còn mở và các việc P1–P3 làm được khi chưa đủ bộ nhớ (2026-11-20)
 
 | Mục | Nội dung | Kết quả đã kiểm chứng |
 |---|---|---|
 | Pool trung tâm khi sập (P0) | Registry: register và heartbeat đang nghỉ trả 503 ngay, không mở kết nối mới; lịch sử tìm kiếm không ghi khi trung tâm sập; thành công thì xóa trạng thái sập (`c33e1a5`) | Khi trung tâm dừng, heartbeat trả 503 kèm `Retry-After: 5` trong thời gian nghỉ của mạch ngắt (thiết kế: không mở kết nối mới khi đang nghỉ). Số mili-giây từng lần gọi không được ghi lại đầy đủ. e2e lần 18: 100 đạt, 0 lỗi; Cold 218 ms, Warm 179 ms |
 | `.dockerignore` (P0) | Loại trừ `**/node_modules`, `**/dist`, `**/*.tsbuildinfo` (`b228728`). Cảnh báo build `frontend\node_modules` đã hết | Build đạt; cảnh báo 0 lần ở cả hai image. Lỗi phát hiện khi làm: thêm `**/dist` một mình khiến image department thiếu `@dms/database/dist/index.js`; nguyên nhân gốc là `tsbuildinfo` cũ trong build context làm tsc bỏ qua bước phát ra. Sửa: loại thêm `**/*.tsbuildinfo`, giữ `**/dist` |
-| C3 sao lưu log Kafka mã hóa (P1) | `backup-kafka-logs.sh` và `kafka-logs-restore-test.sh` (`35909b1`) | Bản `kafka_20261120_221415` vào OneDrive\dms_backups: 543 tệp gốc, 4.454.608 byte mã hóa. Khôi phục thử: tệp mã hóa khớp manifest; 543/543 tệp khớp SHA-256 và kích thước; segment `__cluster_metadata-0` đọc được 73.980 bản ghi |
+| C3 sao lưu log Kafka mã hóa (P1) | `backup-kafka-logs.sh` và `kafka-logs-restore-test.sh` (`35909b1`) | Bản `kafka_20261120_221415` vào thư mục sao lưu ngoài môi trường: 543 tệp gốc, 4.454.608 byte mã hóa. Khôi phục thử: tệp mã hóa khớp manifest; 543/543 tệp khớp SHA-256 và kích thước; segment `__cluster_metadata-0` đọc được 73.980 bản ghi |
 | N3 đối soát tự động (P1) | `GET /internal/digest` ở node; `ReconcileService` ở search, chu kỳ 5 phút, khóa tư vấn (advisory lock) trên CSDL trung tâm chỉ một bản chạy; lệch thì đợi 20 giây kiểm lại rồi yêu cầu resync (`b228728`) | Digest khớp tuyệt đối: HR 334, ACC 4, SALES 8. Làm lệch có kiểm soát bằng cách đổi `row_version` của một tài liệu trên node HR. Log (giờ UTC của container): 15:52:19 phát hiện LỆCH; 15:52:24 yêu cầu resync (lệch 1); 15:57:00 lệch 0. Hai vòng bình thường 15:46:59 và 15:47:00 đều lệch 0, không có lệch giả. e2e lần 19: 100 đạt, 0 lỗi |
 | N4 quét toàn vẹn tệp (P3) | `FileIntegrityService` đọc lại từng tệp MinIO, băm SHA-256 và so với checksum và kích thước đã lưu; `GET /internal/integrity`, `POST /internal/integrity/scan` (`dde7d17`) | Quét node HR: 341/341 tệp khớp. Làm sai checksum của `file_id=1` trong CSDL node: 1 tệp lệch (340 khớp) kèm cảnh báo; khôi phục: 341/341. Ghi chú: lỗi mô phỏng bằng checksum đã lưu; đường so sánh giống hệt tệp hỏng thật. e2e lần 20: 100 đạt, 0 lỗi |
-| C1 khung chaos (P2) | `infrastructure/chaos/run_scenario.py` và kịch bản JSON (chưa YAML: máy chưa cài PyYAML) (`24c81a4`) | `central-down` 8/8 đạt (tìm kiếm HTTP 200, tổng 141, partial=false trước, trong và sau khi CSDL trung tâm dừng). `minio-hr-down` 7/7 đạt |
+| C1 khung chaos (P2) | `infrastructure/chaos/run_scenario.py` và kịch bản JSON (chưa YAML: chưa cài PyYAML) (`24c81a4`) | `central-down` 8/8 đạt (tìm kiếm HTTP 200, tổng 141, partial=false trước, trong và sau khi CSDL trung tâm dừng). `minio-hr-down` 7/7 đạt |
 
 Chưa làm và lý do:
-- B1 (Kafka 3 broker) và B2 (Patroni CSDL trung tâm): chặn bởi C1 RAM (ba lần đo 1,52 / 1,80 / 1,45 GB, dưới 2 GB) và C2 (cửa sổ bảo trì, chờ người dùng).
-- N2 (Patroni HR) và C2 (autoscaler theo lag): N2 cần B2 và quyết định PostgreSQL 16 hoặc 17; C2 cần RAM.
+- B1 (Kafka 3 broker) và B2 (Patroni CSDL trung tâm): chặn bởi C1 bộ nhớ (ba lần đo gần nhất dưới 2 GB) và C2 (cửa sổ bảo trì, chờ người dùng).
+- N2 (Patroni HR) và C2 (autoscaler theo lag): N2 cần B2 và quyết định PostgreSQL 16 hoặc 17; C2 cần bộ nhớ trống.
 - N6 (Idempotency-Key): cần chốt thiết kế (bảng khóa, TTL, phạm vi API) trước khi viết mã.
-- B4 (bản sao ACC/SALES): cần RAM.
+- B4 (bản sao ACC/SALES): cần bộ nhớ trống.
 - C3 của P3 (bảng điểm): cần làm rõ nội dung.
 
 ## 2o. Khi CSDL trung tâm lỗi: registry trả 503, node giữ nhịp tim (2026-11-20)
@@ -162,7 +174,7 @@ Chưa làm và lý do:
 **Chưa xong và khoảng trống:**
 - Pool kết nối bị xếp hàng khi CSDL trung tâm lỗi (heartbeat chờ kết nối trung tâm): đã xử lý trong `c33e1a5` (mạch ngắt nhanh; ghi nền bỏ qua khi trung tâm sập), xem mục 2p.
 - Kiểm tra e2e tổng là 100 (thêm một kiểm tra HTTP 200 trong vòng đo SLA).
-- Các mục còn mở từ mục 2n: dòng `dms.dept.legal.document:0` cũ trong CSDL, RAM cho P1, `KAFKA_LOG_DIRS`. (`.dockerignore` đã xong trong `b228728`.)
+- Các mục còn mở từ mục 2n: dòng `dms.dept.legal.document:0` cũ trong CSDL, bộ nhớ cho P1, `KAFKA_LOG_DIRS`. (`.dockerignore` đã xong trong `b228728`.)
 
 ## 2n. Gói P0.6: tự phục hồi tiến độ projector và đối soát (2026-11-19 → 2026-11-20)
 
@@ -170,7 +182,7 @@ Chưa làm và lý do:
 |---|---|---|
 | P0.6.1 Tự phục hồi tiến độ bằng dấu vân tay | Mỗi bản ghi có dấu vân tay (băm topic, partition, offset, khóa, timestamp và giá trị), lưu cùng tiến độ trong một transaction. Khi khởi động: B1 kiểm khoảng offset (tiến độ ≥ log-end, tiến độ < log-start, thiếu dấu vân tay thì đọc lại từ log-start); B2 đọc lại đúng bản ghi tại tiến độ rồi so dấu vân tay: khớp thì tiếp tục từ tiến độ + 1 và commit offset, không khớp thì đọc lại từ log-start và ghi cảnh báo WARN | `projector-epoch-test.sh` **18/18**, mã thoát 0, sau khi sửa (b). Ca 1 và ca 2 là mô phỏng |
 | P0.6.2 Resync không phụ thuộc MinIO | Khi `minio-hr` dừng, `POST /internal/resync` trả HTTP 201 (trước đây HTTP 500). `resyncAll` chỉ đọc CSDL node và ghi outbox (`outbox.service.ts`), không gọi MinIO | Kiểm ngày 19/11 (log 15:36 UTC): `minio-hr` dừng (`State.Running=false`), resync trả HTTP 201 `{"replayed":294}`; log `dept-hr` không có lỗi MinIO trong 3 phút; `minio-hr` bật lại và healthy |
-| P0.6.3 Sao lưu chưa mã hóa | Thư mục `20261119_031054` đã chuyển khỏi OneDrive | Đã chuyển vào Thùng rác Windows theo mục 3 của phương án người dùng đã duyệt (19/11). Kiểm lại: không còn trong OneDrive; `kafka_20261120_221415` và `20261119_041101` vẫn có. Chưa kiểm nội dung Thùng rác |
+| P0.6.3 Sao lưu chưa mã hóa | Thư mục `20261119_031054` đã chuyển khỏi thư mục sao lưu | Đã chuyển vào thùng rác của hệ điều hành theo mục 3 của phương án người dùng đã duyệt (19/11). Kiểm lại: không còn trong thư mục sao lưu; `kafka_20261120_221415` và `20261119_041101` vẫn có. Chưa kiểm nội dung thùng rác |
 | P0.6.4 CDC SALES trong e2e | Mục 15 của `e2e-smoke.sh`: tạo tài liệu tại node SALES, vào chỉ mục trung tâm trong 30 giây, tìm liên phòng thấy | PASS 3/3 trong e2e lần 16 (tạo tài liệu tại SALES HTTP 201; vào chỉ mục trung tâm trong 30 giây; tìm liên phòng thấy) |
 
 **Quyết định kỹ thuật (đã chốt theo đề xuất):**
@@ -196,10 +208,10 @@ Chưa làm và lý do:
 | Sau (b), lần 2 | 99 đạt, 0 lỗi | Warm SLA 150 ms, Cold SLA 1364 ms |
 
 **Chưa xong và khoảng trống:**
-- Nguyên nhân Warm SLA lần 1 chưa xác định. Mã cho thấy đường truy vấn khi trung tâm sập không chờ kết nối trung tâm: bản chụp danh bạ có cooldown 4 giây (`snapshot.service.ts`), `lookupCentralIds` bỏ qua khi `sourceDown`, và `fallback` trả ngay. Giả thuyết còn lại là một node trả lời chậm khi máy thiếu RAM (commit khoảng 27/31 GB). Chưa kiểm bằng `tookMs` từng node.
+- Nguyên nhân Warm SLA lần 1 chưa xác định. Mã cho thấy đường truy vấn khi trung tâm sập không chờ kết nối trung tâm: bản chụp danh bạ có cooldown 4 giây (`snapshot.service.ts`), `lookupCentralIds` bỏ qua khi `sourceDown`, và `fallback` trả ngay. Giả thuyết còn lại là một node trả lời chậm khi môi trường thiếu bộ nhớ. Chưa kiểm bằng `tookMs` từng node.
 - Log search có `ExceptionsHandler: Connection terminated due to connection timeout` lúc 16:37:50–57 UTC, khi trung tâm vừa dừng. Chưa xác định endpoint. Vòng đo cold/warm không kiểm mã HTTP, nên nếu đây là lỗi 500 thì e2e không thấy được.
 - Dòng tiến độ cũ `dms.dept.legal.document:0` còn trong CSDL; topic đã không còn. Chờ quyết định xóa.
-- RAM: P1 Hướng A thêm 2 broker. Theo mức dùng hiện tại của một broker (643 MiB), cần thêm khoảng 1,3 GB, nên điều kiện "≥ 2,0 GB trống" chưa đủ.
+- Bộ nhớ: P1 Hướng A thêm 2 broker. Theo mức dùng hiện tại của một broker, cần thêm khoảng 1,3 GB, nên điều kiện "≥ 2,0 GB trống" chưa đủ.
 - Đổi `KAFKA_LOG_DIRS` sang volume cần tạo lại container Kafka, nên phải sao chép log trước. Việc này thuộc runbook P1.
 
 ## 2l. Gói P0.5: khép kín P0 trước khi làm P1 (2026-11-19)
@@ -218,7 +230,7 @@ Chưa làm và lý do:
 - Tiến độ projector trong CSDL trung tâm lệch với topic Kafka hiện tại. Nguyên nhân gốc là Kafka không lưu log vào volume: log thật nằm ở `/tmp/kafka-logs` trong container, nên mỗi lần tạo lại container Kafka thì mất topic. Lần tạo lại lúc P0.4 là nguyên nhân. Đã đặt tiến độ HR/ACC về -1 để projector đọc lại; tiến độ đã hội tụ về log-end − 1 và lag về 0. Đã sao lưu log Kafka ra ngoài container trước khi thay đổi.
 - Hàm `GREATEST` trong upsert tiến độ không bao giờ hạ giá trị, nên lỗi lệch sẽ lặp lại khi topic bị tạo lại. Cần sửa mã (xem mục P1 trước).
 - Content-worker dừng xử lý sau lỗi "Dựng consumer lỗi" lúc broker bầu lại leader; đã khởi động lại và backlog được xử lý hết.
-- Bộ nhớ Windows chỉ còn khoảng 0,8 GB trên 15,6 GB, làm heartbeat của broker Kafka bị timeout khi máy bận.
+- Bộ nhớ trống thấp làm heartbeat của broker Kafka bị timeout khi môi trường bận.
 
 **Kết quả cuối:** `e2e-smoke.sh` 96/96, 0 lỗi (Warm SLA 169 ms, Cold 1445 ms).
 
@@ -228,10 +240,10 @@ Chưa làm và lý do:
 |---|---|---|
 | CDC cho SALES | `connect-init` thiếu SALES, nên không có connector `outbox-sales`. Slot `dbz_sales_outbox` không hoạt động và giữ 10 MB WAL, 5 sự kiện chưa gửi. Đã thêm `SALES:dept-sales-db:dms_sales`, và mật khẩu replication riêng theo phòng (`REPL_PASSWORD_<MÃ>`) | Connector RUNNING; slot active; WAL còn 288 byte; topic `dms.dept.sales.document` có; số tài liệu SALES ở trung tâm khớp node (1 = 1) |
 | Resync phụ thuộc MinIO | Khi `minio-hr` dừng, resync của HR trả HTTP 500 (`getaddrinfo ... minio-hr`). Đã kiểm chứng: khi MinIO khỏe, resync trả 289 | Ghi nhận như một lỗ hổng thiết kế; cần sửa để resync không đọc MinIO |
-| Kafka không lưu log vào volume | Log thật nằm ở `/tmp/kafka-logs` trong container; volume `dms-kafka-data` trống. Mỗi lần tạo lại container Kafka làm mất topic. Đã sao lưu log hiện tại (1,9 GB) ra scratchpad | Ảnh hưởng trực tiếp đến cutover P1 (xem `docs/11`) |
+| Kafka không lưu log vào volume | Log thật nằm ở `/tmp/kafka-logs` trong container; volume `dms-kafka-data` trống. Mỗi lần tạo lại container Kafka làm mất topic. Đã sao lưu log hiện tại ra thư mục tạm | Ảnh hưởng trực tiếp đến cutover P1 (xem `docs/11`) |
 | Hồi quy | `e2e-smoke.sh` sau thay đổi | 96/96, 0 lỗi |
 
-**P1:** đã chuẩn bị runbook đã hiệu chỉnh tại [docs/11-p1-kafka-cutover.md](11-p1-kafka-cutover.md). **Chưa thi công**: RAM trống của Windows chỉ khoảng 0,8 GB trên 15,6 GB, chưa đủ cho 3 broker. Cần bạn giải phóng RAM và chọn cửa sổ bảo trì (~10 phút).
+**P1:** đã chuẩn bị runbook đã hiệu chỉnh tại [docs/11-p1-kafka-cutover.md](11-p1-kafka-cutover.md). **Chưa thi công**: bộ nhớ trống hiện chưa đủ cho 3 broker. Cần bạn giải phóng bộ nhớ và chọn cửa sổ bảo trì (~10 phút).
 
 ## 2k. Gói P0 (ổn định trước khi làm Gói B, 2026-11-19)
 
@@ -240,10 +252,10 @@ Thứ tự theo quyết định Q4: N5 → N1 → N7 → đóng cổng. Mỗi m�
 | Mục | Nội dung | Kết quả |
 |---|---|---|
 | P0.1 Đua duyệt yêu cầu | Giữ chỗ nguyên tử `PENDING → PROCESSING` (chỉ một người đi tiếp), gọi node, rồi `APPROVED`; lỗi thì trả về `PENDING`; giữ chỗ quá 2 phút được nhận lại | `approval-race-test.sh` với 8 người duyệt đồng thời: 1 lần 201, 7 lần 409; node chỉ có 1 lượt đang hiệu lực. Nhánh xác định (yêu cầu đang PROCESSING bị 409): đạt. **6/6** |
-| P0.2 Sao lưu ngoài máy | `backup-offsite.sh`: pg_dump của HR, ACC, SALES, trung tâm (nén gzip) và thư mục `/data` của MinIO, ghi vào `OneDrive\dms_backups\<thời điểm>`, kèm manifest SHA-256 và số liệu đối soát | Bản `20261119_031054`: 4 CSDL + 3 MinIO, đủ tệp và hash |
+| P0.2 Sao lưu ngoài môi trường | `backup-offsite.sh`: pg_dump của HR, ACC, SALES, trung tâm (nén gzip) và thư mục `/data` của MinIO, ghi vào thư mục sao lưu ngoài môi trường theo `<thời điểm>`, kèm manifest SHA-256 và số liệu đối soát | Bản `20261119_031054`: 4 CSDL + 3 MinIO, đủ tệp và hash |
 | P0.2 Kiểm khôi phục | `restore-test.sh`: kiểm hash, khôi phục vào DB tạm rồi xóa, đối soát với manifest | **21/21**, RTO 37 giây |
 | P0.3 Đo độ trễ hàng đợi | Thêm `kafka-exporter` v1.7.0 (chỉ trong mạng nội bộ) và scrape job `kafka-exporter:9308` | Có metric `kafka_consumergroup_lag` (36 dòng khớp) |
-| P0.4 Đóng cổng | Bỏ publish CSDL (6), MinIO (2), Redis, Kafka, Debezium và node ACC; Grafana, Prometheus, Jaeger chỉ bind `127.0.0.1` | `docker ps`: chỉ `nginx :8000` và `hr-site-edge :3001` mở ra ngoài |
+| P0.4 Đóng cổng | Bỏ publish CSDL (6), MinIO (2), Redis, Kafka, Debezium và node ACC; Grafana, Prometheus, Jaeger chỉ nhận kết nối nội bộ | `docker ps`: chỉ cổng vào của `nginx` và cổng nội bộ của `hr-site-edge` mở ra ngoài |
 
 **Hồi quy sau P0:** `e2e-smoke.sh` 96/96, 0 lỗi (Warm SLA 140 ms, Cold 1370 ms).
 
@@ -277,9 +289,9 @@ Thiết kế: [ADR-013](05-adr/ADR-013-token-revocation.md). Kiểm thử: `infr
 | Dừng một bản | 40/40 request qua gateway vẫn 200 |
 | Hồi quy e2e-smoke | 96/96, 0 lỗi (Warm SLA 171 ms, Cold 1316 ms) |
 
-**Giới hạn:** "nâng cấp" trong bài test là tạo lại container với cùng image, chưa đổi phiên bản mã. Hai bản chạy trên cùng máy và cùng CSDL nên không chứng minh chịu lỗi phần cứng.
+**Giới hạn:** "nâng cấp" trong bài test là tạo lại container với cùng image, chưa đổi phiên bản mã. Hai bản chạy trong cùng một môi trường và cùng CSDL nên không chứng minh chịu lỗi phần cứng.
 
-**Gateway `:8000`:** đã thêm `proxy_connect_timeout 1s`, `proxy_next_upstream error timeout http_502 http_503 http_504` và `proxy_next_upstream_tries 2` cho route `/api/dept/<mã>` và route tương thích cũ. Kiểm tra sau khi reload: 30/30 request 200. Chưa có bài kiểm thử nào chứng minh cơ chế retry đã kích hoạt, vì không tái hiện được khoảng thời gian DNS còn IP của bản đã tắt.
+**Gateway (cổng vào):** đã thêm `proxy_connect_timeout 1s`, `proxy_next_upstream error timeout http_502 http_503 http_504` và `proxy_next_upstream_tries 2` cho route `/api/dept/<mã>` và route tương thích cũ. Kiểm tra sau khi reload: 30/30 request 200. Chưa có bài kiểm thử nào chứng minh cơ chế retry đã kích hoạt, vì không tái hiện được khoảng thời gian DNS còn IP của bản đã tắt.
 
 **Quy tắc đổi schema CSDL khi rolling update (Expand/Contract):**
 1. Expand: chỉ thêm bảng hoặc cột có `NULL` hoặc `DEFAULT`. Không đổi tên, không xóa cột, không thêm `NOT NULL` ngay. Bản cũ và bản mới đều đọc/ghi được.
@@ -310,7 +322,7 @@ Thiết kế: [ADR-012](05-adr/ADR-012-autonomous-offline-and-convergence.md). T
 | Nội dung | Kết quả |
 |---|---|
 | Cô lập đường lên | `dms-site-hr` riêng cho HR; `dept-hr` và `postgres-hr-primary` vẫn nối `dms-network` để cắt thật |
-| Nhân viên làm việc khi đứt mạng | Đăng nhập, tạo 3 tài liệu, cấp chia sẻ qua cổng `localhost:3001`; trạng thái `OFFLINE` |
+| Nhân viên làm việc khi đứt mạng | Đăng nhập, tạo 3 tài liệu, cấp chia sẻ qua cổng `localhost:<cổng nội bộ HR>`; trạng thái `OFFLINE` |
 | Backlog khi đứt mạng | 214 048 byte WAL, 4 sự kiện outbox |
 | Trung tâm phát hiện | DEGRADED sau 30 giây |
 | Nối lại | HR ACTIVE sau 8 giây (trước đó 90 giây do vòng đăng ký chồng nhau; đã sửa) |
@@ -360,11 +372,11 @@ Hoàn thiện sau review (e2e 94/94): chỉ mục duy nhất + upsert chống đ
 | Dashboard hiển thị "Lag <10ms" và "ALL NODES HEALTHY" cố định | Số liệu giả | Hiển thị số sự kiện và lỗi/DLQ thật; trạng thái lấy từ Registry |
 | Dockerfile gọi script/workspace không tồn tại, copy thư mục không có | Không build được image | Sửa cả ba Dockerfile (nay còn hai) |
 | `init-replication.sh` có `RAISE NOTICE` ngoài khối `DO` | Có thể làm hỏng khởi tạo Postgres mới | Xóa dòng đó |
-| Hai connector Debezium cũ đang chạy trên máy này (khác với kết luận ban đầu "chưa đăng ký") | Slot không dùng giữ WAL | Gỡ connector, slot và publication cũ |
+| Hai connector Debezium cũ đang chạy trong môi trường phát triển (khác với kết luận ban đầu "chưa đăng ký") | Slot không dùng giữ WAL | Gỡ connector, slot và publication cũ |
 
 ## 5. Chưa làm
 
-1. **Kubernetes: đã gỡ khỏi dự án (2026-11-17)** theo yêu cầu, vì máy có RAM hạn chế. Mọi kiểm thử và demo chỉ chạy trên Docker Compose.
+1. **Kubernetes: đã gỡ khỏi dự án (2026-11-17)** theo yêu cầu, vì tài nguyên của môi trường phát triển không đủ cho cụm nhiều nút. Mọi kiểm thử và demo chỉ chạy trên Docker Compose.
 2. Failover Postgres tự động (CloudNativePG), Kafka 3 broker, Redis Sentinel: phụ thuộc mục 1.
 3. NetworkPolicy: kind mặc định không thực thi, cần CNI khác (Calico/Cilium).
 4. Loki (log tập trung), Alertmanager; nối chuỗi Outbox → Kafka vào trace.

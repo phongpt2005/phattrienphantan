@@ -1,6 +1,6 @@
 # ADR-005: Triển khai trên Kubernetes bằng Operator và Helm chart dùng chung
 
-**Trạng thái: Withdrawn (2026-11-17).** Kubernetes đã gỡ khỏi dự án vì giới hạn RAM; hạ tầng chuẩn hóa trên Docker Compose. Giữ lại làm hồ sơ thiết kế.
+**Trạng thái: Withdrawn (2026-11-17).** Kubernetes đã gỡ khỏi dự án vì tài nguyên của môi trường phát triển không đủ cho cụm nhiều nút; hạ tầng chuẩn hóa trên Docker Compose. Giữ lại làm hồ sơ thiết kế.
 
 **Trạng thái:** Proposed (chưa triển khai)
 

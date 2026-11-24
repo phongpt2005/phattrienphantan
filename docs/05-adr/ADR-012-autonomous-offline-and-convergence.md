@@ -9,12 +9,12 @@ Feature 2 yêu cầu: khi một phòng bị cắt khỏi mạng chung, nhân vi�
 
 Lần chạy runbook đầu cho thấy hai lỗi thiết kế:
 1. Node đăng ký lại Registry rất chậm (khoảng 90 giây). Nguyên nhân: mỗi lần heartbeat lỗi lại gọi `registerLoop()` mà không dừng vòng cũ, nên nhiều vòng đăng ký và nhiều heartbeat timer chạy song song; backoff lên tới 15 giây.
-2. Đường dẫn tạm `mktemp` của Git Bash không đọc được bằng Python/curl Windows, làm `docId` rỗng và bước chia sẻ lỗi giả.
+2. Đường dẫn tạm `mktemp` của shell không đọc được bằng Python và curl trên môi trường phát triển, làm `docId` rỗng và bước chia sẻ lỗi giả.
 
 ## Quyết định
 
 1. **Cô lập đúng đường lên, giữ đường nội bộ.** Phòng HR có mạng riêng `dms-site-hr` (172.29.10.0/24) chứa `dept-hr`, `postgres-hr-primary`, `minio-hr`. Chỉ `dept-hr` và `postgres-hr-primary` có thêm mạng `dms-network`. Cắt `dms-network` tương đương đứt đường lên mà không mất CSDL cục bộ.
-2. **Cổng nội bộ `hr-site-edge`** (nginx) nằm trên `dms-site-hr`, publish `localhost:3001`. Nhân viên làm việc qua cổng này, nên vẫn truy cập được khi đứt mạng chung.
+2. **Cổng nội bộ `hr-site-edge`** (nginx) nằm trên `dms-site-hr`, publish `localhost:<cổng HR edge>`. Nhân viên làm việc qua cổng này, nên vẫn truy cập được khi đứt mạng chung.
 3. **Tự trị = ghi cục bộ + outbox trong cùng transaction.** Mọi thay đổi nghiệp vụ và dòng `outbox` được ghi trong một transaction. Debezium Outbox Router đẩy về Kafka khi nối lại. Không dùng cột trạng thái `PENDING`: đo backlog bằng WAL của slot `dbz_hr_outbox` (`pg_wal_lsn_diff(pg_current_wal_lsn(), confirmed_flush_lsn)`) là đủ.
 4. **Trạng thái đồng bộ tại node.** `GET /sync/status` trả `mode ONLINE|OFFLINE` dựa trên việc probe Registry (timeout 2 giây) và thời điểm liên lạc cuối (ngưỡng 30 giây). Giao diện `GET /console` hiển thị huy hiệu `CHẾ ĐỘ TỰ TRỊ (OFFLINE) - DỮ LIỆU ĐANG LƯU NỘI BỘ`.
 5. **Registry: một vòng đăng ký, một heartbeat timer, backoff tối đa 5 giây.** Vòng đăng ký có cờ `registering` (single-flight); mỗi lần bật heartbeat đều thay timer cũ.
@@ -45,5 +45,5 @@ Lần chạy trước (trước khi sửa `registry-client`): HR về ACTIVE sau
 
 - Đánh đổi: khi đứt mạng, phòng không duyệt được yêu cầu xin quyền mới (duyệt cần trung tâm); bản sao chia sẻ ở trung tâm chỉ nhất quán cuối cùng.
 - Tên bảng thật là `outbox`, không phải `transactional_outbox` như DoD ghi. Giữ tên `outbox` để không đổi schema đang chạy.
-- Số liệu phụ thuộc Docker Desktop trên Windows và tải của máy; cần đo lại khi đổi máy.
+- Số liệu phụ thuộc vào môi trường chạy Docker và tải của hệ thống; cần đo lại khi đổi môi trường.
 - Cần thêm cảnh báo CSDL cục bộ lỗi (phần watchdog) nếu thử nghiệm mất DB chứng minh task `FAILED` không tự phục hồi.

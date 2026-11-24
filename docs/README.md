@@ -17,11 +17,11 @@
 docker build -f services/department-service/Dockerfile    -t dms/department-service:2.0 .
 docker build -f services/search-engine-service/Dockerfile -t dms/search-engine-service:2.0 .
 (cd frontend && npm ci && npm run build)
-docker compose up -d --no-build        # giao diện: http://localhost:8000
+docker compose up -d --no-build        # giao diện: http://localhost:<cổng nginx>
 bash infrastructure/scripts/e2e-smoke.sh
 bash scripts/add-department.sh SALES "Phòng Kinh doanh"   # thêm phòng ban, không sửa node cũ
 ```
 
 Tài khoản demo (khi `SEED_DEMO_USERS=true` trong `.env`): `<mã>_staff`, `<mã>_manager`, `admin` (Ban Giám đốc); mật khẩu theo `DEMO_*` trong `.env`.
 
-Địa chỉ khi chạy: giao diện `http://localhost:8000`, Grafana `http://localhost:3000`, Prometheus `http://localhost:9090`, Jaeger (tracing) `http://localhost:16686`.
+Địa chỉ khi chạy: giao diện `http://localhost:<cổng nginx>`, Grafana `http://localhost:<cổng Grafana>`, Prometheus `http://localhost:<cổng Prometheus>`, Jaeger (tracing) `http://localhost:<cổng Jaeger>`. Các cổng được khai báo trong `docker-compose.yml`.
