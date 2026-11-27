@@ -1,6 +1,6 @@
 # 12. Nhật ký tiến trình dự án DMS
 
-Cập nhật lần cuối: 2026-11-23. Mục đích: ghi theo thứ tự thời gian việc đã làm, vì sao làm, kết quả đo, sự cố và việc còn mở. Người đọc có thể hiểu toàn bộ quá trình mà không cần lật lại cuộc trò chuyện.
+Cập nhật lần cuối: 2026-11-26. Mục đích: ghi theo thứ tự thời gian việc đã làm, vì sao làm, kết quả đo, sự cố và việc còn mở. Người đọc có thể hiểu toàn bộ quá trình mà không cần lật lại cuộc trò chuyện.
 
 Tài liệu liên quan: `07-implementation-status.md` (hiện trạng từng gói, chi tiết kiểm thử), `10-goi-b-va-c.md` (lộ trình P0 → P3), `11-p1-kafka-cutover.md` (runbook P1 và điều kiện C1–C4), `05-adr/` (quyết định kiến trúc).
 
@@ -12,7 +12,7 @@ Tài liệu liên quan: `07-implementation-status.md` (hiện trạng từng gó
 
 ---
 
-## 0. Trạng thái hiện tại (2026-11-23)
+## 0. Trạng thái hiện tại (2026-11-26)
 
 | Gói | Trạng thái | Ghi chú |
 |---|---|---|
@@ -28,10 +28,13 @@ Tài liệu liên quan: `07-implementation-status.md` (hiện trạng từng gó
 | P2 C1: khung chaos | [đã kiểm chứng] | Commit `24c81a4`. `central-down` 8/8, `minio-hr-down` 7/7 |
 | P3 N4: quét toàn vẹn tệp MinIO | [đã kiểm chứng] | Commit `dde7d17`. Quét HR 341/341. e2e lần 20: 100/0 |
 | Kế hoạch thiết kế: `01`–`06`, ADR-001 đến ADR-013 | [đã làm] | ADR-005 (Kubernetes) đã đánh dấu Withdrawn ngày 2026-11-17; `04` có ghi chú |
-| P1 B1 bản gọn: Kafka 3 broker, RF = 3, log trên volume | [đã kiểm chứng], chưa commit | Cutover 2026-11-24 (giai đoạn K). Digest khớp, e2e lần 22 100/0. Còn: worker Debezium thứ hai |
-| P1 B2 (Patroni CSDL trung tâm) | [chưa làm] | Cần thiết kế riêng; bộ nhớ trống vẫn sát ngưỡng. Xem mục 5 |
-| P2 N2 (Patroni HR), C2 (autoscaler theo lag) | [chưa làm] | N2 cần B2 và quyết định PostgreSQL 16 hay 17; C2 cần bộ nhớ trống |
-| P3 N6 (Idempotency-Key), B4 (bản sao ACC/SALES), C3 (bảng điểm) | [chưa làm] | N6 cần chốt thiết kế; B4 cần bộ nhớ trống; C3 cần làm rõ nội dung |
+| P1 B1: Kafka 3 broker, RF = 3, log trên volume, 2 worker Debezium | [đã kiểm chứng] | Cụm: giai đoạn K (`b6846ff`). Worker thứ hai và dọn broker cũ: giai đoạn L (chưa commit). Kafka failover 18/18, Debezium failover 7/7, e2e lần 25 100/0 |
+| P1 B2: CSDL trung tâm tự chuyển máy chính (Patroni, etcd, HAProxy) | [đã kiểm chứng], chưa commit | Giai đoạn M. Failover 23/23 (lượt 5, 6), e2e lần 27 100/0 |
+| Bỏ điểm chết etcd và HAProxy của cụm trung tâm | [đã kiểm chứng], chưa commit | Giai đoạn N. etcd 3 nút, HAProxy 2 bản; `central-failover-test` 35/35 |
+| P2 N2: CSDL HR trên Patroni (PostgreSQL 16) | [đã kiểm chứng], chưa commit | Giai đoạn N, ADR-015. `hr-failover-test` 27/27 (lượt 3), `partition-test` 19/19 |
+| P2 C2: tự co giãn content-worker theo lag | [đã kiểm chứng], chưa commit | `autoscaler-test.sh` 16/16 (lượt 2) |
+| P3 N6 Idempotency-Key; 503 + Retry-After; B4 bản 2 ACC/SALES; giám sát Patroni/etcd/worker | [đã kiểm chứng], chưa commit | 23/23; 10/10; 28/28; 15/15 |
+| P3 C3: bảng điểm nghiệm thu | [đã kiểm chứng], chưa commit | 18/18 mục, 405 kiểm tra đạt, 0 lỗi (lượt `20261127_052231` và chạy lại 4 mục ở `20261127_124527`). Tổng hợp: `docs/14` |
 | Báo cáo bài tập lớn (tài liệu Word, ngoài mã) | [chưa kiểm chứng] | Bản `baocao/Bao_cao_BTL_Phat_trien_he_thong_phan_tan.docx`, 2026-11-23. Bộ kiểm XML PASSED, bảng có khung và độ rộng cột. Chưa xem bố cục bằng PDF. Còn thiếu mã sinh viên của một thành viên. Xem mục 1, giai đoạn I |
 
 **Trạng thái mã:** mọi thay đổi mã đã commit đến `24c81a4`. Phần tài liệu (`docs/07`, `docs/11`, `docs/12`) được commit trong lượt này. Repo chưa có remote, nên chưa có gì được đẩy đi.
@@ -263,10 +266,120 @@ Người dùng yêu cầu "comit và thực hiện tác vụ cho xong toàn bộ
 - Bộ nhớ: không broker nào bị OOM hay khởi động lại; tổng bộ nhớ ba broker tăng ít hơn ước tính của bản gọn so với broker đơn cũ. [đã kiểm chứng]
 
 **Còn mở.**
-- Worker Debezium thứ hai: Debezium vẫn là điểm chết duy nhất của đường CDC.
-- Dọn broker cũ (container đã dừng và volume `dms-kafka-data`) sau một thời gian chạy ổn định: cần người dùng chốt.
-- Jaeger và Grafana vẫn tạm dừng. Lưu ý: e2e (dòng 205, `docker compose up -d --scale content-worker=2` không chỉ định service) bật lại mọi service đang dừng, nên sau mỗi lần e2e phải dừng lại hai service này. Broker cũ không bị bật lại vì nằm dưới profile `kafka-legacy`.
-- Chưa commit.
+- Các mục này đều đã xử lý ở giai đoạn L: worker Debezium thứ hai, dọn broker cũ, e2e bật lại service đang dừng.
+
+### Giai đoạn L: hoàn tất B1 (2026-11-24 đến 2026-11-26)
+
+**Quyết định.** Người dùng: "tôi đồng ý các option của bạn hãy thực hiện". Tôi hiểu là đồng ý cả bốn việc đã nêu: commit B1; worker Debezium thứ hai; xử lý việc e2e bật lại Jaeger và Grafana; xóa hẳn broker cũ khi cụm mới đủ ổn định.
+
+**Commit.** `b6846ff` (hạ tầng B1) và `cba9e2f` (tài liệu: nhật ký và quy tắc không nêu hạ tầng cá nhân).
+
+**Thay đổi.**
+- Worker Debezium thứ hai (`debezium-2`): cùng nhóm Connect, dùng chung ba topic trạng thái RF 3. Heap của cả hai worker đặt lại cho nằm trong giới hạn container (mặc định của image vượt giới hạn). Thời gian chờ chia lại task giảm từ 5 phút xuống 30 giây. Watchdog hỏi worker nào còn sống.
+- `debezium-failover-test.sh` (mới).
+- `e2e-smoke.sh`: bước co giãn content-worker chỉ tác động tới `content-worker`; mục 11 tự bật Jaeger nếu đang dừng và trả về trạng thái dừng ở cuối.
+- Gỡ broker Kafka đơn cũ: xóa container và volume `dms-kafka-data`, bỏ service và volume khỏi compose.
+
+**Kiểm chứng.**
+- `debezium-failover-test.sh` 7/7. Dừng worker đang giữ task `outbox-hr`: task chuyển sang worker còn lại sau 2 giây, tài liệu mới vào chỉ mục sau 2 giây; bật lại: 3 connector RUNNING. [đã kiểm chứng]
+- Worker sập đột ngột (kill): task chạy lại trên worker còn lại sau 14 giây. Đo tay một lần, không nằm trong bài kiểm. [đã kiểm chứng]
+- Khôi phục thử bản sao lưu log gần nhất của broker cũ (chụp khoảng 55 phút trước cutover), trước khi xóa: tệp mã hóa khớp manifest, 551/551 tệp khớp SHA-256, đọc được segment metadata (136.106 bản ghi). Lượt đầu chưa đạt ở bước đọc segment vì môi trường container đang tắt; chạy lại đạt. [đã kiểm chứng]
+- Volume của broker cũ trống (broker cũ ghi log trong container), nên dữ liệu duy nhất bị xóa là log trong container. [đã kiểm chứng]
+- Đính chính: bản sao lưu không phủ hết log đã xóa. So offset lúc sao lưu với offset lúc cutover, 396 sự kiện (HR 380, ACC 4, SALES 12) nằm ngoài bản sao lưu và không khôi phục được. Cả 396 đã được projector và content-worker xử lý (lag 0 trước cutover); tài liệu tương ứng nằm ở CSDL các phòng và đã phát lại sang cụm mới (digest khớp).
+- e2e lần 25: 100/0; Cold 1230 ms; Warm 62 ms; CDC đồng bộ 328 ms. Sau e2e, digest ba phòng khớp chỉ mục trung tâm (HR 370, ACC 4, SALES 14), lag 0 trên 18 partition, không broker hay worker nào bị OOM. [đã kiểm chứng]
+
+**Các lượt e2e không hợp lệ (ghi lại, không tính là đạt).**
+- Lần 23: máy ngủ giữa chừng khoảng 20 giờ, token đăng nhập hết hạn, hàng loạt yêu cầu trả 401.
+- Lần 24: máy thiếu bộ nhớ, rồi lại ngủ giữa chừng. Trước khi ngủ đã có một lỗi thật: tải tệp DOCX thất bại vì giao dịch tạo tài liệu vượt hạn 5 giây (mất 6,8 giây). Giao dịch đã hoàn tác và tệp trên MinIO đã được dọn, không để lại dữ liệu rác.
+
+**Sự cố khác.**
+- Môi trường container không khởi động được sau lần tắt máy đột ngột: các tệp socket nội bộ hỏng, không mở, xóa hay đổi tên được. Đã chuyển thư mục chứa socket sang tên khác (đảo ngược được); môi trường tự tạo lại. Hộp thoại lỗi có lựa chọn đặt lại mặc định: không chọn, vì sẽ xóa toàn bộ dữ liệu. Cụm Kafka giữ nguyên dữ liệu qua các lần khởi động lại, vì log nằm trên volume.
+
+**Sai sót của tôi.**
+- Đo bộ nhớ trống chạy song song với lệnh triển khai worker thứ hai, nên lúc triển khai chưa biết bộ nhớ trống đang rất thấp. Đúng ra phải đo xong rồi mới triển khai.
+- Xóa broker cũ dựa trên câu đồng ý chung, không hỏi lại riêng việc xóa không đảo ngược được. Không còn đường quay lui về broker cũ; nếu cần, khôi phục từ bản sao lưu đã kiểm.
+
+**Còn mở.**
+- Bộ nhớ trống vẫn sát ngưỡng, nên P1 B2 chưa đủ điều kiện.
+- Trang giám sát đọc trạng thái connector qua một worker: khi worker đó sập, trang giám sát không đọc được, dù CDC vẫn chạy.
+- Khi giao dịch tạo tài liệu quá hạn, node trả lỗi 500 thay vì 503 kèm `Retry-After`. Đề xuất cải thiện, chưa làm.
+- Jaeger và Grafana vẫn tạm dừng.
+
+### Giai đoạn M: P1 B2, CSDL trung tâm tự chuyển máy chính (2026-11-26)
+
+**Quyết định.** Người dùng: "chốt b2" (phương án A: Patroni 2 node, etcd, HAProxy; ghi đồng bộ không chặn), sau đó: "đã đóng và có thể giảm mốc ram nhưng không bỏ một phần nào trong kế hoạch". Mốc dừng giảm từ 1 GB xuống 0,6 GB; làm đủ các bước.
+
+**Phát hiện khi khảo sát (đính chính `docs/10`).** CSDL trung tâm không hoàn toàn dựng lại được. Chỉ mục tìm kiếm dựng lại được từ các phòng; yêu cầu xin quyền, lịch sử tìm kiếm và sự kiện trạng thái phòng chỉ nằm ở trung tâm. Vì vậy chọn ghi đồng bộ thay cho bất đồng bộ mà `docs/10` đề xuất (ADR-014).
+
+**Đã làm.**
+- Sao lưu `20261126_010552` trước khi chuyển: khôi phục thử 22/22. Sao lưu `20261126_025243` sau khi chuyển: khôi phục thử 22/22. [đã kiểm chứng]
+- Sửa hai lỗi của `restore-test.sh`: chọn nhầm thư mục sao lưu Kafka; giá trị rỗng ở cả hai vế vẫn báo đạt. [đã kiểm chứng]
+- Image Patroni 4.0.6 trên PostgreSQL 16.15 (cùng nền với CSDL cũ, giữ collation) và image công cụ (etcd 3.6.11, HAProxy 3.4.8 từ kho gói Alpine). Bản dịch vụ `central-etcd`, `central-pg-1`, `central-pg-2`, `central-db`, volume riêng.
+- `central-migrate.sh`: thử trước rồi chép thật; dừng search, chép, so từng bảng bằng mã băm toàn bộ nội dung, sequence, chỉ mục, ràng buộc, trigger, extension; khác là quay lại CSDL cũ. Lượt thật: mọi bảng và cấu trúc khớp. [đã kiểm chứng]
+- search trỏ `central-db` (HAProxy). `lib-central.sh`: 9 script tự nhận biết đang dùng CSDL cũ hay cụm mới. Kịch bản chaos `central-down` sang cụm mới.
+- Hai máy CSDL cũ đã dừng, giữ nguyên dữ liệu (profile `central-legacy`). Chỉ xóa khi người dùng yêu cầu riêng.
+
+**Kiểm chứng.** [đã kiểm chứng]
+- `central-failover-test.sh` (6 ca, 23 kiểm tra; ca 3b "bản sao sập khi máy chính còn sống" thêm sau lượt 2):
+
+| Lượt | Kết quả | Sập đột ngột | Bị treo | Ghi chú |
+|---|---|---|---|---|
+| 1 | 16/3 | 23 giây | 19 giây | 3 lỗi do bài kiểm so cả dòng trạng thái |
+| 2 | 19/19 | 23 giây | 15 giây | Đã siết bài kiểm |
+| 3 | 21/2 | chưa đo được | 23 giây | Lỗi thật: etcd sập thì máy chính tự mất quyền (DNS chậm); bài kiểm ngừng đo quá sớm |
+| 4 | 22/1 | 18 giây | không hợp lệ | Máy ngủ giữa ca bị treo |
+| 5 | 23/0 | 20 giây | 20 giây | Sau khi sửa DNS và cách đo |
+| 6 | 23/0 | 17 giây | 18 giây | |
+
+  Ở mọi lượt: không mất dòng nào đã xác nhận, không lúc nào có hai máy chính, máy cũ từ chối ghi, yêu cầu xin quyền không mất. Bản sao sập: vẫn ghi, ngắt dài nhất 1–4 giây. etcd sập 35 giây: vẫn ghi được ở lượt 2, 4, 5, 6 (lỗi ở lượt 3, trước khi sửa). HAProxy sập: tìm kiếm vẫn HTTP 200.
+- e2e lần 26: 100/0; Cold 53 ms; Warm 46 ms. e2e lần 27 (sau khi tạo lại hai node với cấu hình DNS mới): 100/0; Cold 77 ms; Warm 169 ms.
+- Chaos `central-down` 8/8. `partition-test` 17/17 (hội tụ 12 giây). `approval-race-test` 6/6. `share-provenance-test` 14/14. `projector-epoch-test` 18/18. `apply-schema.sh central` chạy được trên cụm.
+- Digest ba phòng khớp chỉ mục trung tâm (HR 381, ACC 4, SALES 15). Gián đoạn tìm kiếm khi chuyển khoảng 2 phút.
+
+**Sự cố và sai sót (đã sửa).**
+- Lượt 1 của bài kiểm chuyển máy chính báo 3 lỗi do chính bài kiểm (so cả dòng trạng thái của lệnh ghi). Khi rà lại thấy hai chỗ lỏng: không có lần ghi lỗi nào vẫn tính RTO 0; không có dòng xác nhận nào vẫn tính "không mất". Đã siết và chạy lại từ đầu.
+- Bản thử báo ràng buộc khác nhau: PostgreSQL viết lại CHECK khi nạp từ bản dump; chuẩn hóa rồi so, 30/30 ràng buộc giống nhau.
+- `partition-test` báo lỗi vì giả định sai có từ khi HR có bản thứ hai: chỉ ngắt một bản. Đã sửa thành ngắt cả phòng và CSDL; trước khi sửa đã có một lượt bị 3 lỗi và một tài liệu HTTP 500 do kết nối CSDL treo lửng.
+- Lượt dựng cụm đầu không tự dừng khi chạm mốc bộ nhớ; các lượt sau tự dừng đúng. Mốc bộ nhớ chạm lại sau khi chạy tải kiểm thử.
+- Máy chủ tên miền nội bộ của môi trường container không trả lời ra ngoài: dựng image bằng cách truyền sẵn địa chỉ kho gói.
+- Lỗi thật tìm ra ở lượt 3: khi etcd dừng, tên `central-etcd` không còn, câu hỏi tên miền bị chuyển ra máy chủ tên miền bên ngoài (đang hỏng) và mỗi lần chờ nhiều giây; vòng lặp Patroni kẹt quá ttl nên máy chính tự mất quyền, HAProxy cắt kết nối. Sửa: giới hạn phân giải tên 1 giây, 1 lần thử cho hai node; tạo lại hai node luân phiên (chuyển máy chính có kế hoạch). Ba lượt sau đều đạt ca này.
+- Lượt 3 còn lộ lỗi đo: bài kiểm ngừng đo 4 giây sau khi có máy chính mới, trong khi máy thiếu bộ nhớ cần thêm 8 giây để sẵn sàng. Đã sửa: đo tới khi ghi lại được (tối đa 60 giây).
+
+**Còn mở.**
+- Bộ nhớ trống vẫn thấp; B2 không làm máy bớt tải. Khi máy thiếu bộ nhớ, thời gian chuyển máy chính dài hơn (đo được 17–23 giây; một lượt không đo được vì bài kiểm ngừng sớm).
+- HAProxy và etcd mỗi thứ một bản: HAProxy sập thì không ghi được vào trung tâm (tìm kiếm vẫn chạy); etcd sập thì vẫn ghi được nhưng không tự chuyển máy chính.
+- Cụm vẫn nằm trên cùng môi trường: chứng minh cơ chế, không chống hỏng máy.
+- Xóa hai máy CSDL cũ: chờ người dùng.
+- Trang giám sát chưa đọc trạng thái Patroni.
+
+### Giai đoạn N: bỏ điểm chết etcd/HAProxy, P2 N2, C2 và P3 (2026-11-26)
+
+**Quyết định.** Người dùng hỏi nên dùng PostgreSQL 16 hay 17, cách xử lý HAProxy và etcd, không bỏ phần nào trước đó, rồi yêu cầu "hoàn thành plan tốt nhất để tôi còn nghiệm thu", sau đó: "làm cho xong đến p3", và nhắc: "phải thực hiện xong từng phần chứ không chỉ ghi nghiệm thu cho có". Lời khuyên đã đưa: giữ PostgreSQL 16 (Debezium 2.7 hỗ trợ chính thức tới 16; đồng bộ slot của 17 cần Debezium 3.x; lên 17 thành gói riêng); etcd 3 nút thêm dần dạng learner; HAProxy 2 bản cùng tên DNS, không dùng VIP.
+
+**Đã làm và đã kiểm chứng.** Bảng chi tiết ở `docs/07` mục 2s.
+- etcd 1 → 3 nút (`central-etcd-expand.sh`), HAProxy 2 bản cho trung tâm. `central-failover-test.sh` mở rộng 35 kiểm tra: 35/35.
+- N2: CSDL HR sang Patroni (`hr-patroni-cutover.sh`): chép nguyên thư mục dữ liệu, khớp system id, vị trí slot, băm 12/12 bảng, 386/386 tài liệu; HR không ghi được 218 giây. Volume cũ giữ nguyên để quay lui (profile `hr-legacy`).
+- N6 Idempotency-Key 23/23; 503 + `Retry-After` thay cho 500, dọn tệp mồ côi 10/10; B4 bản 2 cho ACC và SALES 28/28; giám sát đọc Patroni, etcd, nhiều worker Debezium 15/15.
+
+**Lỗi thật tìm ra khi kiểm và đã sửa tới gốc.**
+1. `hr-failover-test` lượt 1 (20/2): sau khi máy chính HR sập, Debezium kẹt, 11/16 tài liệu không lên chỉ mục trung tâm. Bản chép slot trên bản sao trỏ vào WAL mà bản sao không có (bản sao dựng lúc connector tạm dừng); Patroni vẫn báo an toàn. Phục hồi: tạo lại slot, resync HR (407/407). Sửa: bộ canh slot trong mỗi node Patroni; `patroni-roll.sh` chỉ chuyển máy chính khi bản chép dùng được.
+2. Lượt 2 (24/3): bộ canh báo `UNSAFE` mãi vì slot trên máy chính không đi tiếp khi phòng không tạo tài liệu (15 MB WAL chưa xác nhận). Sửa: `heartbeat.action.query` của Debezium ghi bảng `debezium_heartbeat` ở cả 3 phòng; phần chưa xác nhận còn dưới 1 kB. Lượt 3: 27/0.
+3. `partition-test` lượt 1 sau N2: đứt mạng thì đăng nhập HR trả 500 (pool CSDL hết chỗ). Docker DNS trả IP ở mạng chung cho lưu lượng nội bộ site; đứt mạng chung là kết nối treo. Sửa: tên `*-site` chỉ có trên mạng site cho node → HAProxy → Patroni.
+4. Lượt 2: ghi được lúc đầu, nhưng sau 25 giây một lần tạo tài liệu chờ 37 giây ở bước tải tệp lên kho tệp trong site. Các lần hỏi tên ở mạng chung bị treo chiếm hết luồng phân giải tên của Node.js. Sửa: node phòng ban hỏi tên thất bại sau 1 giây, 16 luồng (như search đã có).
+5. Hội tụ sau đứt mạng chậm (75 giây; giai đoạn M là 12 giây). Đo: nhịp tim của node hồi phục sau 5 giây; phần chậm là Debezium treo trên socket cũ tới lần truyền lại TCP kế tiếp. Sửa hai lớp: watchdog khởi động lại task khi node báo slot không có ai đọc 30 giây (lượt 4: 57 giây); `tcp_retries2=5` cho hai worker Debezium (chờ số đo).
+6. C2 lượt 1: bộ co giãn không thêm được bản nào. `docker compose --scale` từ chối khi có bản đang paused ("cannot start a paused container"), nhưng bộ co giãn giấu lỗi và vẫn ghi `scale-up`. Sửa: bắt mã lỗi, ghi `action=error` kèm lý do. Bài kiểm đổi từ `docker pause` sang giới hạn CPU (worker quá tải vẫn chạy, đúng tình huống thật). Cũng ở lượt này: tạo tải bị gateway giới hạn 2 tải lên/giây (7 lần 429); bài kiểm giữ nhịp và gửi lại khi gặp 429.
+7. Lỗi phụ: phép kiểm "máy cũ từ chối ghi" gặp lúc node đang khởi động lại để chép slot; e2e chỉ dừng một bản khi giả lập SALES sập (sai từ khi có bản 2); `idempotency-test` tính 429 của gateway là lỗi; phép kiểm tệp mồ côi ban đầu không chạm MinIO. Đã sửa cả bốn.
+
+**Bảng điểm nghiệm thu (C3).**
+- Lượt `20261127_001413`: không hợp lệ. Máy ngủ vài giờ giữa mục `central` (khoảng ngắt đo được 1005 giây trong một ca 25 giây). Nguyên nhân: tôi đặt chế độ giữ máy thức theo phiên rồi kết thúc lượt trả lời trong khi bảng điểm còn chạy. Lượt này còn lộ lỗi của chính bảng điểm: bài kiểm Kafka đọc stdin của vòng lặp, làm mất các mục còn lại (dừng sau 4 mục). Sửa: chạy từng bài kiểm với `< /dev/null`, đọc danh sách mục qua fd 3; bỏ mã màu trước khi đọc kết quả.
+- Lượt `20261127_042046`: 17/18 mục, 399 đạt, 3 lỗi. Ba lỗi ở `restore`: bản sao lưu thiếu MinIO của cả 3 phòng. Gốc: `backup-offsite.sh` đưa đường dẫn tạm kiểu Unix cho `docker cp` và trông vào việc môi trường shell tự đổi đường dẫn; bảng điểm tắt việc tự đổi đó. Sửa: đường dẫn tường minh theo hệ điều hành. Chạy lại mục `restore`: lộ thêm một lỗi đọc máy chính trả rỗng khi máy tải nặng (vòng lặp Patroni quá giờ); sửa: hỏi lại tới 15 giây. Mục `restore` sau đó: 22/22, khôi phục thử 45 giây.
+- Hội tụ sau đứt mạng ở lượt `20261127_042046`: 17 giây (sau `tcp_retries2=5` cho Debezium; lượt trước 57 và 75 giây). Lượt `20261127_052231`: 46 giây (máy tải nặng hơn).
+- Lượt `20261127_052231`: 14/17 mục đạt trước khi máy tự khởi động lại giữa mục `restore`. Ba mục chưa đạt, đã tìm gốc: `central` chuyển máy chính khi bị treo mất 46 giây vì etcd ghi đĩa chậm (fdatasync 1,4–4,7 giây, 3 nút etcd dùng chung đĩa); `chaos-central` đòi tìm kiếm đầy đủ ngay khi cụm bật lại (đổi sang đo thời gian hồi phục, giới hạn 60 giây); `monitor` chờ Debezium khởi động chưa đủ lâu. Thêm giám sát etcd và Patroni vào Prometheus (cảnh báo `EtcdSlowDisk`, `EtcdNoLeader`, `PatroniNoPrimary`).
+- Sau khi máy khởi động lại, môi trường container không lên được vì các tệp socket cũ bị hỏng; đổi tên hai thư mục chứa socket rồi khởi động lại (không đặt lại về mặc định, không mất dữ liệu). Container tự bật theo restart policy, các cụm và connector khỏe lại.
+- Lượt `20261127_124527` (chạy lại 4 mục): 4/4, 80 kiểm tra đạt. `central` 35/35 (chuyển máy chính 19 và 21 giây), `chaos-central` 8/8, `monitor` 15/15, `restore` 22/22 (khôi phục thử 260 giây).
+- **Tổng hợp: 18/18 mục, 405 kiểm tra đạt, 0 lỗi** (`docs/14`).
+
+**Sai sót của tôi.** Phép kiểm tệp mồ côi bản đầu đạt mà không chứng minh gì (đã tự phát hiện và thêm ca không có khóa). Hai lượt `partition-test` bị dừng giữa chừng sau khi đã rõ lỗi, để sửa và chạy lại. Sửa `autoscaler-test.sh` trong lúc nó đang chạy (bash đọc tệp dần nên lượt đó lỗi cú pháp giữa chừng); lượt đó không tính, đã chạy lại. Thử `docker update --cpus 0` để gỡ giới hạn CPU nhưng lệnh không gỡ được, một worker bị giới hạn ngoài ý muốn vài phút; đã tạo lại theo cấu hình compose.
 
 ---
 
@@ -291,6 +404,9 @@ Thứ tự theo git. Ngày lấy từ git.
 | `b228728` | 2026-11-20 | N3: đối soát tự động node–Central Index; sửa `.dockerignore` |
 | `dde7d17` | 2026-11-20 | N4: quét toàn vẹn tệp MinIO bằng SHA-256 |
 | `24c81a4` | 2026-11-20 | C1: khung chaos và hai kịch bản (`central-down`, `minio-hr-down`) |
+| `4714c88` | 2026-11-20 | Tài liệu: nhật ký và rà soát số liệu |
+| `b6846ff` | 2026-11-24 | P1 B1 bản gọn: cụm Kafka 3 broker KRaft, RF 3, log trên volume; kafka-failover-test |
+| `cba9e2f` | 2026-11-24 | Tài liệu: nhật ký giải phóng bộ nhớ và B1; bỏ thông tin hạ tầng cá nhân |
 
 Commit cập nhật tài liệu của lượt này: xem `git log` (thông điệp bắt đầu bằng `docs:`).
 
@@ -338,19 +454,19 @@ Commit cập nhật tài liệu của lượt này: xem `git log` (thông điệ
 
 | Việc | Điều kiện hoặc quyết định cần | Ghi chú |
 |---|---|---|
-| P1 B1 phần còn lại: worker Debezium thứ hai | Bộ nhớ (khoảng 0,5 GiB) | B1 bản gọn đã xong ngày 2026-11-24 (giai đoạn K) |
-| Dọn broker Kafka cũ (container đã dừng, volume `dms-kafka-data`) | Người dùng chốt, sau một thời gian cụm mới chạy ổn định | Đang giữ để quay lui (profile `kafka-legacy`) |
-| P1 B2: Patroni CSDL trung tâm | Bộ nhớ; thiết kế riêng | Sau B1 |
-| P2 N2: Patroni HR | Cần B2; quyết định PostgreSQL 16 hay 17 | `10` mục 7 câu 4 |
-| P2 C2: autoscaler theo lag | Bộ nhớ cho các worker bổ sung | N7 đã có |
-| P3 N6: Idempotency-Key | Chốt thiết kế: bảng khóa, TTL (đề xuất 24 giờ), phạm vi API | Thêm bảng vào CSDL node: cần chốt trước khi viết mã |
-| P3 B4: bản sao ACC/SALES | Bộ nhớ | — |
-| P3 C3: bảng điểm | Người dùng làm rõ nội dung | — |
+| Trang giám sát đọc connector qua nhiều worker | Nhỏ, chưa chốt | CDC không phụ thuộc mục này |
+| ~~Trả 503 kèm `Retry-After` khi giao dịch tạo tài liệu quá hạn~~ | Đã làm (giai đoạn N) | `retry-after-test` 10/10 |
+| Xóa hai máy CSDL trung tâm cũ (profile `central-legacy`) và hai máy CSDL HR cũ (profile `hr-legacy`) | Người dùng yêu cầu riêng | Đang dừng, giữ để quay lui |
+| ~~P2 N2, C2; P3 N6, B4, C3~~ | Đã làm (giai đoạn N) | Số đo ở `07` mục 2s |
+| Tự co giãn chạy thường trực | Chọn nơi chạy `content-autoscaler.sh` (dịch vụ của máy chủ, hoặc lịch chạy `--once`) | Đã kiểm bằng bài kiểm; chưa chạy thường trực |
+| PostgreSQL 17 + Debezium 3.x | Gói riêng | ADR-015 |
+| Triển khai trên 3 máy | Nhóm chốt bố trí | `docs/13` (đề xuất) |
+| Giới hạn lượng kết nối chờ của Prisma (`pool_timeout`, `connect_timeout`) | Nhỏ | Khi kết nối CSDL treo, yêu cầu chờ hết 10 giây của pool |
 | Dòng `dms.dept.legal.document:0` cũ | Người dùng quyết định xóa | Topic đã không còn trong Kafka |
 | Bí mật trong git (`94b2dc6`, `3a55d19`) | Người dùng chốt xoay khóa; viết lại lịch sử là thao tác phá hủy | Repo hiện không có remote, nên chưa có gì bị đẩy đi |
 | Bản chưa mã hóa trong thùng rác | Người dùng quyết định xóa hẳn hay giữ | Chưa kiểm nội dung thùng rác |
 | PyYAML (nếu muốn chaos bằng YAML thật) | Người dùng chốt cài thêm | Hiện dùng JSON |
-| Jaeger và Grafana đang tạm dừng (giai đoạn J) | Bật lại sau P1/P2 | Khi Jaeger dừng, e2e mục 11 (tra trace) sẽ lỗi |
+| Jaeger và Grafana đang tạm dừng (giai đoạn J) | Bật lại sau P1/P2 | e2e tự bật Jaeger cho mục 11 rồi dừng lại |
 
 ---
 
@@ -384,6 +500,12 @@ Mỗi số có nguồn trong nhật ký phiên làm việc ngày 2026-11-19 và 
 | 20 | 100/0 | Cold 159 ms, Warm 104 ms (sau N4) |
 | 21 | 100/0 | Cold 41 ms, Warm 31 ms (sau khi khởi động lại môi trường container với giới hạn bộ nhớ mới, 2026-11-24) |
 | 22 | 100/0 | Cold 1235 ms, Warm 20 ms; CDC đồng bộ 860 ms (sau cutover sang cụm Kafka 3 broker, 2026-11-24) |
+| 23 | không hợp lệ | Máy ngủ giữa chừng, token hết hạn |
+| 24 | không hợp lệ | Máy thiếu bộ nhớ và ngủ giữa chừng; một lỗi thật ở DOCX (giao dịch quá hạn 5 giây) |
+| 25 | 100/0 | Cold 1230 ms, Warm 62 ms; CDC đồng bộ 328 ms (2 worker Debezium, đã gỡ broker cũ) |
+| 26 | 100/0 | Cold 53 ms, Warm 46 ms (CSDL trung tâm trên cụm Patroni) |
+| 27 | 100/0 | Cold 77 ms, Warm 169 ms (sau khi tạo lại hai node Patroni) |
+| 28 | 100/0 | Cold 142 ms, Warm 121 ms; 444 giây (mục đầu của bảng điểm `20261127_001413`: etcd 3 nút, HAProxy 2 bản, CSDL HR trên Patroni, bản 2 ACC/SALES, N6) |
 
 ---
 

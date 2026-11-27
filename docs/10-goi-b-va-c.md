@@ -117,6 +117,10 @@ Nguyên tắc sắp xếp: rẻ và giá trị cao làm trước; thứ gì phá
 | **P3** | N4 quét SHA-256, N6 Idempotency-Key, B4 bản sao ACC/SALES, C3 bảng điểm | Giá trị tốt, không chặn việc khác |
 | **P3** | Redis Sentinel, partition outbox/audit, Keepalived | Chỉ khi có số đo cho thấy cần, hoặc có ≥ 2 máy |
 
+**Tình trạng thực hiện (2026-11-26).** P0 đến P3 (trừ hàng cuối, chỉ làm khi có nhiều máy) đã làm; số đo ở `docs/07` mục 2s và `docs/12` giai đoạn N. Hai điểm khác với bảng trên:
+- N2 không "tạo lại slot + resync" sau mỗi lần chuyển máy chính, mà để slot đi theo máy chính (slot cố định của Patroni, bộ canh slot, nhịp tim Debezium; ADR-015). Tạo lại slot luôn bỏ qua một khoảng sự kiện, phải phát lại cả phòng.
+- C3 được làm rõ thành bảng điểm nghiệm thu (`acceptance-scorecard.sh`): chạy mọi bộ kiểm và gom điểm.
+
 ---
 
 ## 6. Ma trận sự cố → phương án
@@ -154,3 +158,8 @@ Cột "Hiện có" là đã kiểm chứng bằng kiểm thử. Cột "Sau lộ 
 2. Sao lưu ra đâu: ổ ngoài, thư mục đồng bộ đám mây, hay dịch vụ S3. Phải là nơi ngoài môi trường phát triển.
 3. Có nên dừng các dịch vụ không dùng khi chạy Gói B để giải phóng bộ nhớ không.
 4. Có chấp nhận nâng PostgreSQL 16 lên 17 cho CSDL node (để dùng failover slot) không, hay giữ 16 và dùng tạo lại slot + resync.
+
+## 8. Đính chính (2026-11-26)
+
+- Mục 2 và Q3 coi CSDL trung tâm là phần dựng lại được. Khảo sát khi làm B2 cho thấy không hoàn toàn: yêu cầu xin quyền, lịch sử tìm kiếm và sự kiện trạng thái phòng chỉ nằm ở trung tâm và không đi qua Kafka.
+- Vì vậy B2 dùng ghi đồng bộ không chặn thay cho bất đồng bộ như Q3 đề xuất (ADR-014).

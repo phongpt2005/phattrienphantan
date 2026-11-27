@@ -47,6 +47,9 @@ Mỗi bài học có: vì sao quan trọng, và áp dụng khi nào.
 13. **Lệnh nặng chạy nền.** Vì sao: grep log lớn treo shell khi máy thiếu RAM. Áp dụng: mọi lệnh có thể quá 120 s; không chạy song song với test đo thời gian.
 14. **Ghi nhận rủi ro thật.** Vì sao: log Kafka nằm trong `/tmp`, bí mật còn trong lịch sử git, pool trung tâm có thể xếp hàng. Áp dụng: luôn đưa vào mục "Còn mở" của nhật ký.
 15. **Replica HA che giấu sự cố.** Vì sao: `dept-hr-2` cùng alias khiến HR vẫn trả lời khi một bản dừng. Áp dụng: mọi kịch bản "node sập" phải dừng toàn bộ bản sao.
+16. **"Có" chưa phải "dùng được".** Vì sao: Patroni báo slot logic trên bản sao "safe", nhưng bản chép thiếu WAL; chỉ lộ khi chuyển máy chính thật (2026-11-26). Áp dụng: kiểm điều kiện dùng được (đủ WAL, đang tiến), không chỉ kiểm sự tồn tại.
+17. **Mô phỏng sự cố phải giống sự cố thật.** Vì sao: `docker pause` làm `compose --scale` từ chối, khác hẳn worker quá tải thật; giới hạn CPU mới giống. Áp dụng: chọn cách gây lỗi theo tình huống thật cần chứng minh.
+18. **Đứt mạng làm lộ lỗi phụ thuộc ẩn.** Vì sao: một lần chạy đứt mạng lộ ba lỗi (DNS chọn mạng chung, luồng phân giải tên Node.js bị chiếm, socket Debezium treo). Áp dụng: sau mọi thay đổi đường kết nối của một site, chạy `partition-test.sh`.
 
 ## 4. Sai lầm đã mắc và cách tránh
 
@@ -59,6 +62,9 @@ Mỗi bài học có: vì sao quan trọng, và áp dụng khi nào.
 - Grep log nặng ở foreground làm treo. Tránh: chạy nền, `--tail`.
 - Viết tài liệu trước khi có số liệu. Tránh: nhãn "chưa kiểm chứng".
 - Sửa tài liệu cũ chỉ theo trí nhớ. Tránh: đo lại và ghi đính chính.
+- Sửa script bash khi nó đang chạy (bash đọc tệp dần, lượt đang chạy lỗi giữa chừng). Tránh: chờ chạy xong mới sửa.
+- Phép kiểm đạt mà không chạm tới cơ chế cần chứng minh (ví dụ kiểm tệp mồ côi khi yêu cầu bị từ chối trước bước tải tệp). Tránh: kiểm cả bằng chứng cơ chế đã chạy (log, số đếm).
+- Giấu lỗi của lệnh hạ tầng (`>/dev/null 2>&1`) rồi ghi như đã thành công. Tránh: bắt mã lỗi, ghi lý do.
 
 ## 5. Cách làm lại một việc bằng skill đã có
 

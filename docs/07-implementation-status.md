@@ -122,17 +122,59 @@ Thay đổi giao diện kèm theo: thanh bên, tiêu đề và bảng lệnh Ctr
 | Node sập oan sau khi Registry khởi động lại | Bị đánh dấu `DEGRADED` | Ân hạn 65 giây, 0 sự cố giả |
 | Chuỗi audit khi ghi đồng thời | Báo đứt oan; HR có 1 nhánh rẽ thật | Thứ tự theo `chain_seq` cấp trong khóa; 200 lần ghi đồng thời vẫn nguyên; sửa lén vẫn bị phát hiện |
 
-## 2q. P1 B1 bản gọn: cụm Kafka 3 broker (2026-11-24, chưa commit)
+## 2s. Bỏ điểm chết etcd và HAProxy, P2 N2, P3 (2026-11-26, chưa commit)
 
 | Mục | Nội dung | Kết quả đã kiểm chứng |
 |---|---|---|
-| Cụm 3 broker KRaft | `kafka-1..3` (broker + controller), heap 256 MB, giới hạn 512 MB, RF mặc định 3, `min.insync.replicas=2`, log trên volume; broker cũ giữ dưới profile `kafka-legacy` | Quorum 3 voter; mọi topic RF 3; không partition thiếu bản sao |
+| etcd 3 nút | Mở rộng từ 1 nút bằng `central-etcd-expand.sh`: sửa địa chỉ peer, thêm từng nút dạng learner rồi nâng quyền; dữ liệu Patroni giữ nguyên | 3/3 nút khỏe. `central-failover-test.sh` ca 4: leader etcd sập, ghi 0 lỗi, máy chính không đổi, etcd bầu leader mới; ca 4b: mất quorum 35 giây vẫn ghi (failsafe) |
+| HAProxy 2 bản | `central-db` và `central-db-2` cùng tên DNS `central-db` | Ca 5: một bản sập, ghi được qua tên `central-db`, mọi bản search nối CSDL 10/10 lần; ca 5b: cả hai sập, tìm kiếm vẫn HTTP 200 |
+| Kiểm chịu lỗi trung tâm | `central-failover-test.sh` mở rộng (35 kiểm tra) | 35/35. Sập đột ngột 16 giây, treo 20 giây, không mất dòng đã xác nhận |
+| N2: CSDL HR trên Patroni | `hr-pg-1`, `hr-pg-2`, HAProxy `hr-db` 2 bản; dùng chung etcd; chép nguyên thư mục dữ liệu (`hr-patroni-cutover.sh`); slot `dbz_hr_outbox` cố định; ADR-015 | Chuyển dữ liệu: khớp system id, vị trí slot, băm 12/12 bảng, 386/386 tài liệu; HR không ghi được 218 giây |
+| N2: kiểm chịu lỗi HR | `hr-failover-test.sh` (27 kiểm tra) | Lượt 1: 20/2 (lỗi thật: slot trên bản sao không dùng được). Lượt 2: 24/3 (lỗi thật: slot đứng yên khi không có sự kiện). Lượt 3, sau hai bản sửa: 27/0; sập đột ngột 16 giây; 17/17 tài liệu đã xác nhận lên chỉ mục trung tâm |
+| N2: bộ canh slot | `slot-guard.py` chạy trong mỗi node Patroni; `patroni-roll.sh` chỉ chuyển máy chính khi bản chép slot dùng được | Ca 3b (dựng lại bản sao khi Debezium dừng): `UNSAFE` khoảng 45 giây, rồi tự chép lại và `ok` |
+| N2: nhịp tim Debezium | `heartbeat.action.query` ghi bảng `debezium_heartbeat` (trong publication, ngoài `table.include.list`) ở cả 3 phòng | Phần WAL chưa xác nhận: trước 15 MB đứng yên, sau dưới 1 kB ở HR, ACC, SALES |
+| N2: tên nội bộ site | Node HR → HAProxy → Patroni dùng tên `*-site`, alias chỉ có trên mạng site HR | Trước khi sửa, đứt mạng làm treo kết nối CSDL (đăng nhập 500, pool hết chỗ) |
+| N2: phân giải tên khi đứt mạng | Node phòng ban hỏi tên thất bại sau 1 giây, 16 luồng phân giải | Trước khi sửa, một lần tạo tài liệu chờ 37 giây ở bước tải tệp trong site |
+| N2: đứt mạng HR với cụm Patroni | `partition-test.sh` (19 kiểm tra, thêm 2 kiểm tra failsafe) | Lượt 3 và 4: 19/19. Mất etcd quá ttl: vẫn đúng một máy chính, vẫn ghi được; 4/4 tài liệu và chia sẻ hội tụ; sự kiện cũ không ghi đè. Hội tụ sau khi nối lại: 75 giây (lượt 3), 57 giây (lượt 4, sau khi watchdog khởi động lại task khi slot không có ai đọc 30 giây) |
+| Debezium bỏ socket chết nhanh | `net.ipv4.tcp_retries2=5` cho hai worker | Hội tụ sau đứt mạng 17–46 giây ở hai lượt bảng điểm (trước đó 57–75 giây) |
+| Giám sát etcd và Patroni | Prometheus thu `etcd_disk_wal_fsync_duration_seconds`, `etcd_server_has_leader`, `patroni_primary`; cảnh báo `EtcdSlowDisk`, `EtcdNoLeader`, `PatroniNoPrimary` | 3 nút etcd và 4 node Patroni `up`; 6 luật nạp được. Lý do: một lần chuyển máy chính mất 46 giây vì etcd ghi đĩa chậm 1,4–4,7 giây |
+| C3: bảng điểm nghiệm thu | `acceptance-scorecard.sh`: 18 bộ kiểm, gom điểm và số đo | 18/18 mục, 405 kiểm tra đạt, 0 lỗi (`docs/14`) |
+| N6: Idempotency-Key | Bảng `idempotency_key` trên CSDL mỗi phòng; khóa gắn với người dùng, giữ 24 giờ; DONE ghi cùng transaction với tài liệu | `idempotency-test.sh` 23/23: gửi lại cùng docId; khác nội dung 422; 8 yêu cầu đồng thời ra đúng 1 tài liệu (409 + Retry-After, hoặc 429 của gateway); chỉ mục trung tâm không nhân đôi |
+| 503 thay cho 500 | Lỗi CSDL tạm thời (P1001, P2024, P2028...) trả 503 + `Retry-After: 2`; CSDL lỗi sau khi tải tệp thì dọn tệp trong MinIO | `retry-after-test.sh` 10/10: 503 có và không có khóa; log dọn tệp 1 lần, MinIO không thêm tệp; thử lại cùng khóa ra đúng 1 tài liệu |
+| B4: 2 bản node ACC, SALES | `dept-acc-2`, `dept-sales-2` cùng alias; mẫu phòng mới có sẵn bản 2; e2e dừng mọi bản khi giả lập phòng sập | `node-replica-test.sh acc sales` 28/28: gateway chia cho cả hai bản; một bản dừng, đăng nhập, xem, tạo tài liệu vẫn được và lên chỉ mục trung tâm |
+| Giám sát | Trang hệ thống hỏi lần lượt từng worker Debezium; thêm cụm Patroni và etcd | `monitoring-test.sh` 15/15: worker 1 dừng vẫn đọc được 3 connector; etcd 2/3 báo warn; bản sao HR dừng báo warn và đúng máy chính |
+| C2: tự co giãn content-worker | `content-autoscaler.sh` chạy ở máy chủ (không mount docker.sock): đọc lag nhóm `content-indexer` từ Prometheus; 1–3 bản (không quá số partition); thêm khi lag ≥ 10 hai lần đọc, bớt khi lag 0 đủ lâu, đưa về tối thiểu khi mọi bản chết; Prometheus không trả lời thì giữ nguyên; lỗi lệnh đổi số bản ghi `action=error` | `autoscaler-test.sh` lượt 2: 16/16. Worker quá tải (giới hạn CPU), lag 31: thêm bản sau 32 giây, lag về 0 sau 83 giây, 30/30 tài liệu lên chỉ mục; bớt về 1 bản sau 20 giây; mọi bản chết: khôi phục sau 13 giây. Lượt 1 lộ lỗi bộ co giãn giấu lỗi của lệnh scale (đã sửa) |
+| Watchdog Debezium | Ngoài task FAILED, còn khởi động lại task khi node báo slot không có ai đọc 30 giây | `partition-test` lượt 4: hội tụ 57 giây (lượt 3 là 75 giây) |
+| Tải lên từ giao diện | Nút tải lên gửi `Idempotency-Key` (một khóa cho một nội dung; sửa nội dung thì khóa mới) | Kiểm kiểu đạt; chưa thử trên trình duyệt |
+
+## 2r. P1 B2: CSDL trung tâm tự chuyển máy chính (2026-11-26, chưa commit)
+
+| Mục | Nội dung | Kết quả đã kiểm chứng |
+|---|---|---|
+| Cụm | Patroni 2 node (`central-pg-1`, `central-pg-2`), etcd, HAProxy (`central-db`); ghi đồng bộ không chặn; ttl 20 giây | Một máy chính, một bản sao đồng bộ |
+| Chuyển dữ liệu | `central-migrate.sh` so từng bảng trước khi đổi | Mọi bảng và cấu trúc khớp; gián đoạn tìm kiếm khoảng 2 phút |
+| Chịu lỗi | `central-failover-test.sh` (23 kiểm tra) | Lượt 5 và 6: 23/23. Sập đột ngột 17–20 giây, treo 18–20 giây, bản sao sập vẫn ghi, etcd sập vẫn ghi, không mất dòng đã xác nhận, không có hai máy chính |
+| Hồi quy | e2e lần 26 và 27, chaos, partition, approval, provenance, epoch | 100/0 và 100/0; 8/8; 17/17; 6/6; 14/14; 18/18 |
+| Sửa sau kiểm thử | Phân giải tên trong node Patroni giới hạn 1 giây, 1 lần thử | Trước khi sửa, etcd sập làm máy chính tự mất quyền (lượt 3) |
+
+Quay lui: đổi `central-db` thành `postgres-central-primary` trong `DATABASE_URL` của search, bật profile `central-legacy`, tạo lại search. Các dòng ghi sau khi chuyển phải chép ngược lại (yêu cầu xin quyền, lịch sử, sự kiện trạng thái). Chi tiết: `docs/12` giai đoạn M, ADR-014.
+
+## 2q. P1 B1: cụm Kafka 3 broker và 2 worker Debezium (2026-11-24 đến 2026-11-26)
+
+| Mục | Nội dung | Kết quả đã kiểm chứng |
+|---|---|---|
+| Cụm 3 broker KRaft | `kafka-1..3` (broker + controller), heap 256 MB, giới hạn 512 MB, RF mặc định 3, `min.insync.replicas=2`, log trên volume | Quorum 3 voter; mọi topic RF 3; không partition thiếu bản sao |
 | Debezium | Bootstrap 3 broker; `CONNECT_*_STORAGE_REPLICATION_FACTOR=3` (biến cũ thiếu tiền tố nên chưa từng có tác dụng) | `debezium_configs` 1 partition, ba topic trạng thái compact, RF 3; 3 connector RUNNING |
 | Cutover | Tạm dừng connector, dừng broker cũ, bật cụm mới, tạo lại consumer, `connect-init` đăng ký lại và resync | Digest node khớp trung tâm trước và sau (HR 349, ACC 4, SALES 11); lag 0; projector tự đọc lại, không cần đặt tiến độ tay |
 | Chịu lỗi | `kafka-failover-test.sh` (mới) | 18/18: mất 1 broker vẫn ghi và CDC chạy; mất 2 broker không có ack (`NotEnoughReplicasException`); hồi phục đủ |
 | Hồi quy | `e2e-smoke.sh` | Lần 22: 100 đạt, 0 lỗi |
 
-Còn lại: worker Debezium thứ hai; dọn broker cũ khi người dùng chốt. Chi tiết: `docs/11` mục 6, `docs/12` giai đoạn K.
+Chi tiết: `docs/11` mục 6, `docs/12` giai đoạn K và L. Worker Debezium thứ hai và việc gỡ broker cũ đã xong (bảng dưới).
+
+| Mục | Kết quả đã kiểm chứng |
+|---|---|
+| Worker Debezium thứ hai | `debezium-failover-test.sh` 7/7; dừng worker: task chuyển sau 2 giây; sập đột ngột: 14 giây (đo tay); e2e lần 25: 100/0 |
+| Broker cũ | Đã gỡ sau khi khôi phục thử bản sao lưu log (551/551 tệp); không còn tham chiếu trong compose |
 
 ## 2p. Hoàn thiện P0 còn mở và các việc P1–P3 làm được khi chưa đủ bộ nhớ (2026-11-20)
 
@@ -145,7 +187,7 @@ Còn lại: worker Debezium thứ hai; dọn broker cũ khi người dùng chố
 | N4 quét toàn vẹn tệp (P3) | `FileIntegrityService` đọc lại từng tệp MinIO, băm SHA-256 và so với checksum và kích thước đã lưu; `GET /internal/integrity`, `POST /internal/integrity/scan` (`dde7d17`) | Quét node HR: 341/341 tệp khớp. Làm sai checksum của `file_id=1` trong CSDL node: 1 tệp lệch (340 khớp) kèm cảnh báo; khôi phục: 341/341. Ghi chú: lỗi mô phỏng bằng checksum đã lưu; đường so sánh giống hệt tệp hỏng thật. e2e lần 20: 100 đạt, 0 lỗi |
 | C1 khung chaos (P2) | `infrastructure/chaos/run_scenario.py` và kịch bản JSON (chưa YAML: chưa cài PyYAML) (`24c81a4`) | `central-down` 8/8 đạt (tìm kiếm HTTP 200, tổng 141, partial=false trước, trong và sau khi CSDL trung tâm dừng). `minio-hr-down` 7/7 đạt |
 
-Chưa làm và lý do:
+Chưa làm và lý do (tại thời điểm 2026-11-20; **đã làm hết từ 2026-11-24 đến 2026-11-26**, xem 2q, 2r, 2s):
 - B1 (Kafka 3 broker) và B2 (Patroni CSDL trung tâm): chặn bởi C1 bộ nhớ (ba lần đo gần nhất dưới 2 GB) và C2 (cửa sổ bảo trì, chờ người dùng).
 - N2 (Patroni HR) và C2 (autoscaler theo lag): N2 cần B2 và quyết định PostgreSQL 16 hoặc 17; C2 cần bộ nhớ trống.
 - N6 (Idempotency-Key): cần chốt thiết kế (bảng khóa, TTL, phạm vi API) trước khi viết mã.

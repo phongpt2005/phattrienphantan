@@ -99,6 +99,12 @@ Skill này ghi lại những gì đã **xác minh** trong dự án (có đườn
 | Số trong tài liệu cũ mâu thuẫn với đo | Ví dụ RAM 2,0 GB trong tài liệu cũ | Dùng số đo; đính chính | Ghi ngày đo |
 | Bí mật bị lộ | Giá trị trong log, diff, tài liệu | Không in lại; đề xuất đổi khóa; báo người dùng | Quét diff bằng pattern (chỉ đếm dòng nghi ngờ) |
 | Thao tác hạ tầng không đảo ngược | Recreate Kafka, xóa topic, `wsl --shutdown` | Sao lưu trước; chốt với người dùng; rồi mới làm | Ghi nhật ký |
+| Sau khi chuyển máy chính HR, CDC kẹt | Connector RUNNING nhưng `pg_replication_slots.active = f`; log Debezium "requested WAL segment ... has already been removed" | Bản chép slot không dùng được (ADR-015). Phục hồi: bỏ slot trên máy chính (Patroni tạo lại), bỏ bản chép trên bản sao, resync phòng. Phòng ngừa: `slot-guard.py`, `heartbeat.action.query` | `hr-failover-test.sh` ca 2 và 3b; `/tmp/slot-guard.json` báo `ok` |
+| Slot đứng yên khi phòng không có hoạt động | `confirmed_flush_lsn` không đổi, WAL chưa xác nhận tăng | Kiểm `heartbeat.action.query` có trong cấu hình connector và bảng `debezium_heartbeat` nằm trong publication | Phần chưa xác nhận dưới vài kB |
+| Site đứt mạng: node không ghi được CSDL trong site | Đăng nhập 500 "Timed out fetching a new connection from the connection pool" | Lưu lượng nội bộ site phải dùng tên `*-site` (alias chỉ có trên mạng site) | `partition-test.sh` |
+| Site đứt mạng: yêu cầu treo hàng chục giây dù CSDL trả lời nhanh | Thời điểm sinh tên tệp và câu INSERT cách nhau lâu | Hỏi tên ở mạng chung treo, chiếm hết luồng phân giải của Node.js: `dns_opt timeout:1 attempts:1`, `UV_THREADPOOL_SIZE: 16` | `partition-test.sh` ca failsafe |
+| Hội tụ chậm sau khi hết đứt mạng | Debezium chỉ báo "Producer failure" khoảng 1 phút sau khi nối lại | Socket cũ treo tới lần truyền lại TCP kế tiếp; watchdog khởi động lại task khi node báo `slotActive=false` 30 giây | Thời gian hội tụ trong `partition-test.sh` |
+| Gateway trả 429 khi bắn đồng thời | Trang HTML của nginx "429 Too Many Requests" | Giới hạn tốc độ của gateway, đúng thiết kế; bài kiểm tách riêng 429 | `idempotency-test.sh` ca 3 |
 
 ## 4. Trước khi báo "đã xong"
 - Có số đo, lệnh chạy và file kết quả (đường dẫn đầy đủ hoặc trong docs).

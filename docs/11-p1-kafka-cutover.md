@@ -1,6 +1,6 @@
 # 11. P1: Cụm Kafka 3 broker KRaft (Hướng A, cutover có kiểm soát)
 
-Trạng thái: **đã thi công B1 bản gọn ngày 2026-11-24** (người dùng chốt "B1 bản gọn"; kết quả ở mục 6). Phần còn lại: worker Debezium thứ hai, kiểm lại ca mất quorum, dọn broker cũ. Tài liệu này hiệu chỉnh đặc tả P1 sau khi kiểm chứng trên hệ thống thật. Mỗi điểm lệch so với đặc tả đều có bằng chứng.
+Trạng thái: **đã thi công B1 bản gọn ngày 2026-11-24** (người dùng chốt "B1 bản gọn"; kết quả ở mục 6). Phần còn lại đã xong ngày 2026-11-26: worker Debezium thứ hai, kiểm lại ca mất quorum, gỡ broker cũ (mục 6). Tài liệu này hiệu chỉnh đặc tả P1 sau khi kiểm chứng trên hệ thống thật. Mỗi điểm lệch so với đặc tả đều có bằng chứng.
 
 ## 1. Điều kiện trước khi cutover (chưa thỏa)
 
@@ -47,7 +47,7 @@ Trạng thái: **đã thi công B1 bản gọn ngày 2026-11-24** (người dùn
 10. Gỡ tạm dừng connector và kiểm tra: lag về 0, số tài liệu từng node khớp chỉ mục trung tâm (so theo từng ID).
 11. Chạy `kafka-failover-test.sh` (đã sửa theo mục 2.5), rồi `e2e-smoke.sh` 96/96.
 
-**Quay lui (tối đa 15 phút):** `docker compose stop kafka-1 kafka-2 kafka-3`; `docker start kafka` (container cũ còn nguyên dữ liệu trong writable layer); cập nhật bootstrap về `kafka:9092`; khởi động lại debezium; đặt lại tiến độ về -1; `connect-init`. Thời gian quay lui thực tế là vài phút, không phải 10 giây.
+**Quay lui (tối đa 15 phút; không còn áp dụng từ khi gỡ broker cũ ngày 2026-11-24, xem mục 6):** `docker compose stop kafka-1 kafka-2 kafka-3`; `docker start kafka` (container cũ còn nguyên dữ liệu trong writable layer); cập nhật bootstrap về `kafka:9092`; khởi động lại debezium; đặt lại tiến độ về -1; `connect-init`. Thời gian quay lui thực tế là vài phút, không phải 10 giây.
 
 ## 4. Lỗ hổng cần sửa trước hoặc cùng P1
 
@@ -69,12 +69,27 @@ Câu 1 và 2: người dùng chốt "B1 bản gọn" ngày 2026-11-24 thay cho v
 
 | Hạng mục | Kết quả |
 |---|---|
-| Cấu hình | 3 broker KRaft (broker + controller), heap 256 MB, giới hạn 512 MB; RF mặc định 3, `min.insync.replicas=2`; log trên volume; Debezium 1 worker, 3 topic trạng thái RF = 3 |
+| Cấu hình | 3 broker KRaft (broker + controller), heap 256 MB, giới hạn 512 MB; RF mặc định 3, `min.insync.replicas=2`; log trên volume; Debezium 1 worker lúc cutover (worker thứ hai thêm sau, xem dưới), 3 topic trạng thái RF = 3 |
 | Cutover | CDC dừng khoảng 5 phút. Trước và sau cutover digest node khớp chỉ mục trung tâm (HR 349, ACC 4, SALES 11, cùng mã băm); lag 0 trên 18 partition |
 | Bước 8 (đặt tiến độ về -1) | Không cần: projector tự phát hiện tiến độ vượt log-end và đọc lại |
 | `kafka-failover-test.sh` | 18/18. Mất 1 broker: `min.insync=3` bị từ chối `NOT_ENOUGH_REPLICAS`, `min.insync=2` vẫn ghi, CDC vẫn chạy. Mất 2 broker: không có ack (`NotEnoughReplicasException`). Hồi phục: quorum 3 voter, hết partition thiếu bản sao, connector RUNNING, CDC chạy lại |
 | e2e | Lần 22: 100/0 |
 | Phát hiện | Biến RF của Debezium phải có tiền tố `CONNECT_`; phải dừng Debezium trước khi dừng broker cũ (xem bước 8); công cụ Kafka không chạy bằng exec trong broker vì giới hạn bộ nhớ |
-| Còn lại | Worker Debezium thứ hai; dọn broker cũ và volume `dms-kafka-data` khi người dùng chốt |
+| Worker Debezium thứ hai | Đã làm (2026-11-24): 2 worker cùng nhóm Connect. `debezium-failover-test.sh` 7/7; dừng worker: task chuyển sau 2 giây; sập đột ngột: 14 giây (đo tay) |
+| Broker cũ | Đã gỡ (2026-11-24): xóa container và volume, bỏ khỏi compose, sau khi bản sao lưu log gần nhất của nó khôi phục thử đạt (551/551 tệp). Bản này chụp trước cutover khoảng 55 phút: 396 sự kiện sau đó không nằm trong bản sao lưu (đều đã xử lý xong, lag 0) |
+| e2e sau khi hoàn tất | Lần 25: 100/0 |
 
-**Quay lui** (vẫn còn hiệu lực vì broker cũ chỉ dừng): tạm dừng connector; dừng `kafka-1..3`; trả `docker-compose.yml` về bản trước B1 hoặc bật profile `kafka-legacy`; `docker start kafka`; tạo lại debezium, search, content-worker, kafka-exporter; chạy `connect-init`.
+**Quay lui:** không còn broker cũ để quay lui. Nếu cụm 3 broker hỏng, dựng lại cụm trống rồi chạy `connect-init` (đăng ký connector và resync từ các node, là nguồn gốc dữ liệu); log cũ khôi phục được từ bản sao lưu `kafka_20261124_005140` đã kiểm, trừ 396 sự kiện phát sinh sau bản đó.
+
+## 7. Quay lui N2 (CSDL phòng HR trên Patroni, 2026-11-26)
+
+CSDL HR cũ (máy chính và bản sao bất đồng bộ) đã dừng, dữ liệu giữ nguyên trên volume, không khởi động mặc định (profile `hr-legacy`). Cụm Patroni chạy trên bản chép của volume đó.
+
+Quay lui chỉ an toàn trước khi có ghi mới trên cụm Patroni. Sau đó, mọi tài liệu, chia sẻ và sự kiện outbox mới chỉ có ở cụm Patroni; quay lui phải chép ngược bằng `pg_dump` các bảng của node, rồi resync phòng.
+
+1. Dừng ghi: dừng hai bản node HR; tạm dừng connector `outbox-hr`.
+2. Dừng `hr-db`, `hr-db-2`, `hr-pg-1`, `hr-pg-2` (dừng, không xóa).
+3. Bật `postgres-hr-primary` và `postgres-hr-replica` bằng profile `hr-legacy`.
+4. Đổi `DATABASE_URL` và `DATABASE_REPLICA_URL` của hai bản node HR về máy chủ cũ; đổi `database.hostname` của connector về máy chủ cũ (sửa đúng một khóa của cấu hình, không in mật khẩu); chạy lại connector.
+5. Tạo lại hai bản node HR. Kiểm: `hr_mode` trả `legacy`, e2e đạt.
+6. Slot trên CSDL cũ dừng ở vị trí lúc chuyển. Offset của Debezium đã vượt vị trí đó, nên Debezium sẽ bỏ qua sự kiện cũ hơn offset: chạy resync phòng HR sau khi quay lui.
