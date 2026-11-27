@@ -120,7 +120,7 @@ export const NotificationBell: React.FC = () => {
         }}
         title={live ? 'Thông báo thời gian thực: đang kết nối' : 'Thông báo thời gian thực: đang nối lại'}
         aria-label="Thông báo"
-        className="relative inline-flex items-center justify-center h-8 w-8 rounded-md border border-slate-300 bg-white text-slate-600 hover:text-slate-900 hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400"
+        className="relative inline-flex items-center justify-center h-8 w-8 rounded-md border border-slate-300 bg-card text-slate-600 hover:text-slate-900 hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400"
       >
         <Bell className="w-4 h-4" />
         <span
@@ -134,7 +134,7 @@ export const NotificationBell: React.FC = () => {
         )}
       </button>
       {open && (
-        <div className="absolute right-0 mt-2 w-80 bg-white rounded-lg border border-slate-200 shadow-menu z-50 overflow-hidden">
+        <div className="absolute right-0 mt-2 w-80 bg-card rounded-xl border border-slate-200 shadow-menu z-50 overflow-hidden">
           <div className="h-10 px-3 border-b border-slate-200 bg-slate-50 flex items-center justify-between">
             <span className="text-data font-semibold text-slate-900">Thông báo</span>
             <div className="flex items-center gap-2">

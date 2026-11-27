@@ -67,12 +67,12 @@ export const ToastProvider: React.FC<{ children: ReactNode }> = ({ children }) =
             <div
               key={toast.id}
               role={toast.type === 'error' ? 'alert' : 'status'}
-              className="pointer-events-auto relative overflow-hidden bg-white border border-slate-200 rounded-lg shadow-menu pl-4 pr-3 py-2.5 flex items-start gap-2.5 animate-slide-right"
+              className="pointer-events-auto relative overflow-hidden bg-card border border-slate-200 rounded-xl shadow-menu pl-4 pr-3 py-2.5 flex items-start gap-2.5 animate-slide-right"
             >
               <span aria-hidden="true" className={`absolute left-0 top-0 bottom-0 w-1 ${style.bar}`} />
               {style.icon}
               <div className="flex-1 min-w-0">
-                {toast.title && <div className={`text-micro font-semibold uppercase tracking-wider ${style.title}`}>{toast.title}</div>}
+                {toast.title && <div className={`text-xs font-medium ${style.title}`}>{toast.title}</div>}
                 <p className="text-data text-slate-700 leading-snug mt-0.5">{toast.message}</p>
               </div>
               <button

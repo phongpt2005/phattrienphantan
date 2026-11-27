@@ -516,7 +516,7 @@ export const ApprovalTab: React.FC = () => {
               <strong className="text-slate-900">{rejecting.title}</strong>.
             </p>
             <div className="flex flex-col gap-1">
-              <label htmlFor="reject-reason" className="text-micro font-semibold uppercase tracking-wider text-slate-500">
+              <label htmlFor="reject-reason" className="text-xs font-medium text-slate-500">
                 Lý do từ chối (gửi cho người xin)
               </label>
               <textarea

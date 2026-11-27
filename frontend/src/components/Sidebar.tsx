@@ -2,8 +2,8 @@ import React from 'react';
 import {
   Activity,
   Building2,
-  ChevronLeft,
-  ChevronRight,
+  ChevronsLeft,
+  ChevronsRight,
   FolderKanban,
   LineChart,
   LogOut,
@@ -13,6 +13,7 @@ import {
 import { useAuth } from '../context/AuthContext';
 import { deptName, useDepartments } from '../context/DepartmentContext';
 import { demoAccounts } from '../demo';
+import { APP_NAME } from '../theme';
 import { AppTab } from '../types';
 import { Avatar, StatusDot } from './ui';
 
@@ -30,7 +31,9 @@ interface NavItem {
   visible: boolean;
 }
 
-/** Thanh điều hướng nền navy: nhóm việc theo nghiệp vụ, mục đang chọn có vạch nhấn màu xanh. */
+const ROLE_LABEL: Record<string, string> = { STAFF: 'Nhân viên', MANAGER: 'Trưởng phòng', EXECUTIVE: 'Ban Giám đốc' };
+
+/** Thanh điều hướng theo mẫu Shadcn Admin: khối tên hệ thống, nhóm menu, thẻ người dùng ở chân. */
 export const Sidebar: React.FC<SidebarProps> = ({ currentTab, onTabChange, isCollapsed, onToggleCollapse }) => {
   const { user, logout, login } = useAuth();
   const { departments } = useDepartments();
@@ -79,49 +82,31 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentTab, onTabChange, isCol
 
   return (
     <aside
-      className={`bg-slate-900 text-slate-300 flex flex-col shrink-0 select-none z-20 transition-[width] duration-150 ${
-        isCollapsed ? 'w-14' : 'w-60'
+      className={`bg-sidebar border-r border-slate-200 flex flex-col shrink-0 select-none z-20 transition-[width] duration-200 ${
+        isCollapsed ? 'w-[60px]' : 'w-64'
       }`}
     >
-      {/* Thương hiệu */}
-      <div className="h-12 px-3 border-b border-white/10 flex items-center justify-between shrink-0">
-        <div className="flex items-center gap-2.5 min-w-0">
-          <span className="w-7 h-7 rounded-md bg-brand-500 flex items-center justify-center shrink-0">
-            <Building2 className="w-4 h-4 text-white" />
+      {/* Khối tên hệ thống */}
+      <div className={`h-16 flex items-center shrink-0 ${isCollapsed ? 'justify-center px-2' : 'px-3'}`}>
+        <div className={`flex items-center gap-3 min-w-0 rounded-lg ${isCollapsed ? '' : 'w-full p-2 hover:bg-slate-100'}`}>
+          <span className="w-9 h-9 rounded-lg bg-brand-500 text-white flex items-center justify-center shrink-0 shadow-sm">
+            <Building2 className="w-[18px] h-[18px]" />
           </span>
           {!isCollapsed && (
             <div className="leading-tight min-w-0">
-              <div className="text-data font-semibold text-white truncate">DMS Enterprise</div>
-              <div className="text-micro text-slate-400 truncate">{isExecutive ? 'Ban Giám đốc' : deptName(user.departmentCode)}</div>
+              <div className="text-[13px] font-semibold text-slate-900 leading-snug">{APP_NAME}</div>
+              <div className="text-xs text-slate-500 truncate">{isExecutive ? 'Ban Giám đốc' : deptName(user.departmentCode)}</div>
             </div>
           )}
         </div>
-        {!isCollapsed && (
-          <button
-            onClick={onToggleCollapse}
-            title="Thu gọn thanh điều hướng"
-            className="p-1 rounded text-slate-400 hover:text-white hover:bg-white/10"
-          >
-            <ChevronLeft className="w-4 h-4" />
-          </button>
-        )}
       </div>
 
       {/* Điều hướng */}
-      <nav className="flex-1 overflow-y-auto px-2 py-3 space-y-4">
-        {isCollapsed && (
-          <button
-            onClick={onToggleCollapse}
-            title="Mở rộng thanh điều hướng"
-            className="w-full h-8 flex items-center justify-center rounded-md text-slate-400 hover:text-white hover:bg-white/10"
-          >
-            <ChevronRight className="w-4 h-4" />
-          </button>
-        )}
+      <nav className="flex-1 overflow-y-auto px-3 py-2 space-y-5">
         {groups.map((g) => (
           <div key={g.title}>
-            {!isCollapsed && <div className="px-2.5 pb-1.5 text-micro font-semibold uppercase tracking-wider text-slate-500">{g.title}</div>}
-            <div className="space-y-0.5">
+            {!isCollapsed && <div className="px-2 pb-1.5 text-xs font-medium text-slate-500">{g.title}</div>}
+            <div className="space-y-1">
               {g.items.map(({ tab, label, icon: Icon }) => {
                 const active = currentTab === tab;
                 return (
@@ -130,16 +115,13 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentTab, onTabChange, isCol
                     onClick={() => onTabChange(tab)}
                     title={label}
                     aria-current={active ? 'page' : undefined}
-                    className={`relative w-full h-9 flex items-center gap-2.5 rounded-md text-data text-left transition-colors ${
+                    className={`w-full h-9 flex items-center gap-2.5 rounded-md text-sm text-left transition-colors ${
                       isCollapsed ? 'justify-center px-0' : 'px-2.5'
-                    } ${active ? 'bg-white/10 text-white font-semibold' : 'text-slate-300 font-medium hover:bg-white/5 hover:text-white'}`}
+                    } ${active ? 'bg-slate-200/70 text-slate-900 font-medium' : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'}`}
                   >
-                    {active && <span aria-hidden="true" className="absolute left-0 top-2 bottom-2 w-0.5 rounded-full bg-brand-400" />}
-                    <Icon className="w-4 h-4 shrink-0" />
+                    <Icon className={`w-4 h-4 shrink-0 ${active ? 'text-brand-600' : ''}`} />
                     {!isCollapsed && <span className="truncate">{label}</span>}
-                    {!isCollapsed && tab === 'system' && !allUp && departments.length > 0 && (
-                      <StatusDot tone="danger" className="ml-auto" />
-                    )}
+                    {!isCollapsed && tab === 'system' && !allUp && departments.length > 0 && <StatusDot tone="danger" className="ml-auto" />}
                   </button>
                 );
               })}
@@ -148,8 +130,8 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentTab, onTabChange, isCol
         ))}
       </nav>
 
-      {/* Chân: tình trạng node, đổi vai trò (chỉ demo), người dùng */}
-      <div className="border-t border-white/10 p-2.5 space-y-2.5 shrink-0">
+      {/* Chân: tình trạng node, đổi vai trò (chỉ demo), người dùng, thu gọn */}
+      <div className="p-3 space-y-2.5 shrink-0">
         {departments.length > 0 && (
           <button
             onClick={() => isExecutive && onTabChange('system')}
@@ -158,16 +140,14 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentTab, onTabChange, isCol
                 ? 'Mọi node phòng ban đang phục vụ'
                 : `Node không phục vụ: ${downCodes.join(', ')}. Tìm kiếm cho các phòng này lấy từ chỉ mục trung tâm.`
             }
-            className={`w-full h-8 flex items-center gap-2 rounded-md border text-micro font-semibold ${
-              isCollapsed ? 'justify-center px-0' : 'px-2.5'
-            } ${allUp ? 'border-white/10 bg-white/5 text-slate-200' : 'border-red-400/30 bg-red-500/10 text-red-200'} ${
-              isExecutive ? 'hover:bg-white/10 cursor-pointer' : 'cursor-default'
-            }`}
+            className={`w-full h-9 flex items-center gap-2 rounded-lg border text-xs font-medium ${isCollapsed ? 'justify-center px-0' : 'px-3'} ${
+              allUp ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-red-200 bg-red-50 text-red-700'
+            } ${isExecutive ? 'hover:opacity-90 cursor-pointer' : 'cursor-default'}`}
           >
             <StatusDot tone={allUp ? 'success' : 'danger'} />
             {!isCollapsed && (
-              <span className="truncate font-mono">
-                {upCount}/{departments.length} node đang phục vụ
+              <span className="truncate">
+                {upCount}/{departments.length} phòng ban đang hoạt động
               </span>
             )}
           </button>
@@ -175,11 +155,11 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentTab, onTabChange, isCol
 
         {!isCollapsed && accounts.length > 0 && (
           <label className="block">
-            <span className="block px-0.5 pb-1 text-micro font-semibold uppercase tracking-wider text-slate-500">Đổi vai trò (demo)</span>
+            <span className="block px-0.5 pb-1 text-xs font-medium text-slate-500">Đổi vai trò (demo)</span>
             <select
               value={currentAccount?.key ?? ''}
               onChange={(e) => void switchTo(e.target.value)}
-              className="w-full h-8 px-2 rounded-md border border-white/10 bg-slate-800 text-data font-medium text-slate-200 focus:outline-none focus:border-brand-400"
+              className="w-full h-9 px-2.5 rounded-md border border-slate-200 bg-card text-sm text-slate-700 shadow-sm focus:outline-none focus:border-brand-500 focus:ring-[3px] focus:ring-brand-500/20"
             >
               {!currentAccount && <option value="">{user.username}</option>}
               {accounts.map((a) => (
@@ -191,24 +171,33 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentTab, onTabChange, isCol
           </label>
         )}
 
-        <div className={`flex items-center gap-2 ${isCollapsed ? 'justify-center' : ''}`}>
+        <div className={`flex items-center gap-2.5 rounded-lg ${isCollapsed ? 'flex-col' : 'p-2 hover:bg-slate-100'}`}>
+          <Avatar name={user.fullName || user.username} />
           {!isCollapsed && (
-            <>
-              <Avatar name={user.fullName || user.username} tone="dark" />
-              <div className="leading-tight min-w-0 flex-1">
-                <div className="text-data font-semibold text-white truncate">{user.fullName || user.username}</div>
-                <div className="text-micro text-slate-400 font-mono truncate">{user.username}</div>
-              </div>
-            </>
+            <div className="leading-tight min-w-0 flex-1">
+              <div className="text-sm font-semibold text-slate-900 truncate">{user.fullName || user.username}</div>
+              <div className="text-xs text-slate-500 truncate">{ROLE_LABEL[user.role] ?? user.role} · {user.username}</div>
+            </div>
           )}
           <button
             onClick={logout}
             title="Đăng xuất"
-            className="p-1.5 rounded text-slate-400 hover:text-white hover:bg-white/10 shrink-0"
+            className="p-1.5 rounded-md text-slate-500 hover:text-red-600 hover:bg-red-50 shrink-0"
           >
             <LogOut className="w-4 h-4" />
           </button>
         </div>
+
+        <button
+          onClick={onToggleCollapse}
+          title={isCollapsed ? 'Mở rộng thanh điều hướng' : 'Thu gọn thanh điều hướng'}
+          className={`w-full h-8 flex items-center gap-2 rounded-md text-xs text-slate-500 hover:text-slate-900 hover:bg-slate-100 ${
+            isCollapsed ? 'justify-center' : 'px-2.5'
+          }`}
+        >
+          {isCollapsed ? <ChevronsRight className="w-4 h-4" /> : <ChevronsLeft className="w-4 h-4" />}
+          {!isCollapsed && 'Thu gọn'}
+        </button>
       </div>
     </aside>
   );

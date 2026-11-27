@@ -1,5 +1,11 @@
 /** @type {import('tailwindcss').Config} */
+// Màu lấy từ biến CSS (src/index.css) để có chế độ sáng và tối như mẫu Shadcn Admin.
+const v = (name) => `rgb(var(--${name}) / <alpha-value>)`;
+const scale = (name, shades) => Object.fromEntries(shades.map((s) => [s, v(`${name}-${s}`)]));
+const TINT = [50, 100, 200, 300, 400, 500, 600, 700, 800];
+
 export default {
+  darkMode: 'class',
   content: ['./index.html', './src/**/*.{js,ts,jsx,tsx}'],
   theme: {
     extend: {
@@ -8,28 +14,22 @@ export default {
         mono: ['"JetBrains Mono"', 'SFMono-Regular', 'Consolas', '"Liberation Mono"', 'monospace'],
       },
       fontSize: {
-        // Thang chữ của hệ thống: nhãn 11px, dữ liệu trong bảng 13px
-        micro: ['0.6875rem', { lineHeight: '1rem' }],
+        micro: ['0.75rem', { lineHeight: '1rem' }],
         data: ['0.8125rem', { lineHeight: '1.25rem' }],
       },
       colors: {
-        // Xanh navy doanh nghiệp (AGENTS.md: #0064e0, #075985, #0f172a)
-        brand: {
-          50: '#eef5ff',
-          100: '#d9e8ff',
-          200: '#b3d1ff',
-          300: '#7fb2ff',
-          400: '#4c94f5',
-          500: '#0064e0',
-          600: '#0052b8',
-          700: '#075985',
-          800: '#0c4a6e',
-          900: '#082f49',
-        },
+        card: v('card'),
+        sidebar: v('sidebar'),
+        slate: scale('slate', [50, 100, 200, 300, 400, 500, 600, 700, 800, 900, 950]),
+        brand: scale('brand', [50, 100, 200, 300, 400, 500, 600, 700, 800, 900]),
+        emerald: scale('emerald', TINT),
+        amber: scale('amber', TINT),
+        red: scale('red', TINT),
+        blue: scale('blue', TINT),
       },
       boxShadow: {
-        drawer: '-8px 0 32px -12px rgba(15, 23, 42, 0.22)',
-        menu: '0 12px 32px -8px rgba(15, 23, 42, 0.22), 0 2px 6px -2px rgba(15, 23, 42, 0.08)',
+        drawer: '-8px 0 32px -12px rgb(0 0 0 / 0.25)',
+        menu: '0 12px 32px -8px rgb(0 0 0 / 0.25), 0 2px 6px -2px rgb(0 0 0 / 0.08)',
       },
     },
   },

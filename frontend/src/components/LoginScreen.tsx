@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { useDepartments, demoUsername } from '../context/DepartmentContext';
 import { ArrowRight, Building2, Eye, EyeOff, Lock, ShieldCheck, User } from 'lucide-react';
+import { APP_NAME } from '../theme';
 import { Button, DeptBadge, Field, INPUT, StatusDot } from './ui';
 
 /** Dòng đăng nhập nhanh (chỉ hiện khi build với VITE_DEMO_LOGIN=true). */
@@ -75,36 +76,47 @@ export const LoginScreen: React.FC = () => {
   const upCount = departments.filter((d) => d.available).length;
 
   return (
-    <div className="min-h-screen grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_440px] bg-white">
-      {/* Cột trái: giới thiệu và tình trạng các phòng ban */}
-      <aside className="hidden lg:flex flex-col justify-between bg-slate-900 text-slate-300 p-10">
-        <div className="flex items-center gap-2.5">
-          <span className="w-8 h-8 rounded-md bg-brand-500 flex items-center justify-center">
-            <Building2 className="w-4 h-4 text-white" />
+    <div className="min-h-screen grid grid-cols-1 lg:grid-cols-2 bg-card">
+      {/* Cột trái (luôn tối, như trang đăng nhập của Shadcn Admin): giới thiệu và tình trạng các phòng ban */}
+      <aside className="relative hidden lg:flex flex-col justify-between bg-zinc-950 text-zinc-300 p-10 overflow-hidden">
+        <div
+          aria-hidden="true"
+          className="absolute inset-0 opacity-[0.07]"
+          style={{ backgroundImage: 'radial-gradient(#fff 1px, transparent 1px)', backgroundSize: '22px 22px' }}
+        />
+        <div className="relative flex items-center gap-3">
+          <span className="w-9 h-9 rounded-lg bg-brand-500 flex items-center justify-center shadow-sm">
+            <Building2 className="w-[18px] h-[18px] text-white" />
           </span>
-          <span className="text-data font-semibold text-white">DMS Enterprise</span>
+          <span className="text-base font-semibold text-white">{APP_NAME}</span>
         </div>
 
-        <div className="max-w-xl">
-          <h1 className="text-2xl font-semibold text-white tracking-tight">Quản trị tài liệu phân tán cho toàn doanh nghiệp</h1>
-          <p className="mt-3 text-data leading-relaxed text-slate-400">
-            Mỗi phòng ban giữ tài liệu trên hệ thống riêng. Tài liệu chỉ được chia sẻ sang phòng khác khi có phê duyệt, và mọi thao tác đều được ghi nhật ký kiểm toán.
+        <div className="relative max-w-lg">
+          <h1 className="text-3xl font-bold text-white tracking-tight leading-tight">Hồ sơ của từng phòng, chia sẻ khi cần, kiểm soát mọi lúc.</h1>
+          <p className="mt-4 text-sm leading-relaxed text-zinc-400">
+            Mỗi phòng ban giữ tài liệu trên hệ thống riêng. Tài liệu chỉ được chia sẻ sang phòng khác khi có phê duyệt, và mọi thao tác đều được ghi nhật ký.
           </p>
         </div>
 
-        <div className="max-w-xl">
-          <div className="mb-2 flex items-center justify-between">
-            <span className="text-micro font-semibold uppercase tracking-wider text-slate-500">Tình trạng các phòng ban</span>
-            {departments.length > 0 && <span className="font-mono text-micro text-slate-400">{upCount}/{departments.length} node đang phục vụ</span>}
+        <div className="relative max-w-lg">
+          <div className="mb-2.5 flex items-center justify-between">
+            <span className="text-xs font-medium text-zinc-400">Tình trạng các phòng ban</span>
+            {departments.length > 0 && (
+              <span className="text-xs text-zinc-400">
+                {upCount}/{departments.length} đang hoạt động
+              </span>
+            )}
           </div>
-          <div className="rounded-lg border border-white/10 divide-y divide-white/10 overflow-hidden">
-            {departments.length === 0 && <div className="px-3 h-9 flex items-center text-data text-slate-400">Đang tải danh sách phòng ban...</div>}
+          <div className="rounded-xl border border-white/10 bg-white/[0.03] divide-y divide-white/10 overflow-hidden">
+            {departments.length === 0 && <div className="px-4 h-11 flex items-center text-sm text-zinc-400">Đang tải danh sách phòng ban...</div>}
             {departments.map((d) => (
-              <div key={d.code} className="px-3 h-9 flex items-center gap-3 text-data">
+              <div key={d.code} className="px-4 h-11 flex items-center gap-3 text-sm">
                 <StatusDot tone={d.available ? 'success' : 'danger'} />
                 <span className="flex-1 min-w-0 truncate font-medium text-white">{d.name}</span>
-                <span className="font-mono text-micro text-slate-400">{d.code}</span>
-                <span className="w-28 text-right text-micro text-slate-400">{d.available ? 'Đang phục vụ' : 'Không phản hồi'}</span>
+                <span className="font-mono text-xs text-zinc-500">{d.code}</span>
+                <span className={`w-28 text-right text-xs ${d.available ? 'text-emerald-400' : 'text-red-400'}`}>
+                  {d.available ? 'Đang hoạt động' : 'Không phản hồi'}
+                </span>
               </div>
             ))}
           </div>
@@ -114,18 +126,18 @@ export const LoginScreen: React.FC = () => {
       {/* Cột phải: form đăng nhập */}
       <main className="flex items-center justify-center p-6 sm:p-10">
         <div className="w-full max-w-sm">
-          <div className="lg:hidden flex items-center gap-2.5 mb-8">
-            <span className="w-8 h-8 rounded-md bg-brand-500 flex items-center justify-center">
-              <Building2 className="w-4 h-4 text-white" />
+          <div className="lg:hidden flex items-center gap-3 mb-8">
+            <span className="w-9 h-9 rounded-lg bg-brand-500 flex items-center justify-center">
+              <Building2 className="w-[18px] h-[18px] text-white" />
             </span>
-            <span className="text-data font-semibold text-slate-900">DMS Enterprise</span>
+            <span className="text-base font-semibold text-slate-900">{APP_NAME}</span>
           </div>
 
-          <h2 className="text-xl font-semibold text-slate-900 tracking-tight">Đăng nhập</h2>
-          <p className="mt-1 text-data text-slate-500">Chọn phòng ban, sau đó nhập tài khoản được cấp.</p>
+          <h2 className="text-2xl font-bold text-slate-900 tracking-tight">Đăng nhập</h2>
+          <p className="mt-1 text-sm text-slate-500">Chọn phòng ban, sau đó nhập tài khoản được cấp.</p>
 
           <div className="mt-6">
-            <div className="mb-1.5 text-micro font-semibold uppercase tracking-wider text-slate-500">Phòng ban</div>
+            <div className="mb-1.5 text-xs font-medium text-slate-500">Phòng ban</div>
             {departments.length === 0 ? (
               <div className="h-10 px-3 rounded-md border border-dashed border-slate-300 flex items-center text-data text-slate-500">
                 Đang tải danh sách phòng ban...
@@ -145,7 +157,7 @@ export const LoginScreen: React.FC = () => {
                     className={`h-10 px-3 rounded-md border flex items-center gap-2 text-left transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${
                       dept === d.code
                         ? 'border-brand-500 bg-brand-50 ring-2 ring-brand-500/15'
-                        : 'border-slate-300 bg-white hover:border-slate-400'
+                        : 'border-slate-300 bg-card hover:border-slate-400'
                     }`}
                   >
                     <StatusDot tone={d.available ? 'success' : 'danger'} />
@@ -212,8 +224,8 @@ export const LoginScreen: React.FC = () => {
 
           {showDemo && (
             <div className="mt-7 pt-5 border-t border-slate-200">
-              <div className="mb-2 text-micro font-semibold uppercase tracking-wider text-slate-500">Đăng nhập nhanh, tài khoản thử nghiệm</div>
-              <div className="rounded-lg border border-slate-200 bg-white divide-y divide-slate-100 overflow-hidden">
+              <div className="mb-2 text-xs font-medium text-slate-500">Đăng nhập nhanh, tài khoản thử nghiệm</div>
+              <div className="rounded-xl border border-slate-200 bg-card divide-y divide-slate-100 overflow-hidden">
                 {departments.flatMap((d) => [
                   <QuickRow
                     key={`${d.code}-staff`}

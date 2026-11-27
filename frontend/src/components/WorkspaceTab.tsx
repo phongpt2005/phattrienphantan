@@ -92,7 +92,7 @@ const NavRow: React.FC<{
           countTone === 'warning'
             ? 'bg-amber-100 text-amber-800 font-semibold'
             : active
-            ? 'bg-white text-brand-700'
+            ? 'bg-card text-brand-700'
             : 'bg-slate-100 text-slate-600'
         }`}
       >
@@ -104,7 +104,7 @@ const NavRow: React.FC<{
 
 const MetaRow: React.FC<{ label: string; children: React.ReactNode }> = ({ label, children }) => (
   <div className="flex items-center justify-between gap-3 px-3 h-9">
-    <dt className="text-micro font-semibold uppercase tracking-wider text-slate-500 whitespace-nowrap">{label}</dt>
+    <dt className="text-xs font-medium text-slate-500 whitespace-nowrap">{label}</dt>
     <dd className="text-data text-slate-800 min-w-0 truncate text-right">{children}</dd>
   </div>
 );
@@ -337,7 +337,7 @@ export const WorkspaceTab: React.FC = () => {
             key={doc.docId}
             onClick={() => setSelectedDocId(doc.docId)}
             onDoubleClick={() => setDrawerDocId(doc.docId)}
-            className={`rounded-lg border bg-white p-3 cursor-pointer transition-colors flex flex-col gap-3 ${
+            className={`rounded-xl border bg-card p-3 cursor-pointer transition-colors flex flex-col gap-3 ${
               isSelected ? 'border-brand-400 ring-2 ring-brand-500/15' : 'border-slate-200 hover:border-slate-300'
             }`}
           >
@@ -496,12 +496,12 @@ export const WorkspaceTab: React.FC = () => {
       : `${filteredDocs.length} tài liệu`;
 
   return (
-    <div className="flex flex-1 min-h-0 w-full bg-white">
+    <div className="flex flex-1 min-h-0 w-full bg-card">
       {/* Cột trái: phạm vi tài liệu, thư mục nghiệp vụ */}
-      <aside className="hidden xl:flex w-60 shrink-0 border-r border-slate-200 bg-white flex-col min-h-0">
+      <aside className="hidden xl:flex w-60 shrink-0 border-r border-slate-200 bg-card flex-col min-h-0">
         <nav aria-label="Phạm vi tài liệu" className="flex-1 min-h-0 overflow-y-auto p-3 space-y-5">
           <div>
-            <div className="px-2.5 pb-1.5 text-micro font-semibold uppercase tracking-wider text-slate-500">Kho tài liệu</div>
+            <div className="px-2.5 pb-1.5 text-xs font-medium text-slate-500">Kho tài liệu</div>
             <div className="space-y-0.5">
               <NavRow
                 active={activeSection === 'MY_DRIVE' && selectedCategory === 'ALL'}
@@ -531,7 +531,7 @@ export const WorkspaceTab: React.FC = () => {
           </div>
 
           <div>
-            <div className="px-2.5 pb-1.5 text-micro font-semibold uppercase tracking-wider text-slate-500">Phạm vi</div>
+            <div className="px-2.5 pb-1.5 text-xs font-medium text-slate-500">Phạm vi</div>
             <div className="space-y-0.5">
               <NavRow
                 active={activeSection === 'CONFIDENTIAL'}
@@ -550,7 +550,7 @@ export const WorkspaceTab: React.FC = () => {
 
           {categories.length > 0 && (
             <div>
-              <div className="px-2.5 pb-1.5 text-micro font-semibold uppercase tracking-wider text-slate-500">Thư mục nghiệp vụ</div>
+              <div className="px-2.5 pb-1.5 text-xs font-medium text-slate-500">Thư mục nghiệp vụ</div>
               <div className="space-y-0.5">
                 <NavRow
                   active={selectedCategory === 'ALL' && isDocSection}
@@ -574,7 +574,7 @@ export const WorkspaceTab: React.FC = () => {
           )}
         </nav>
         <div className="px-4 py-3 border-t border-slate-200 shrink-0">
-          <div className="text-micro font-semibold uppercase tracking-wider text-slate-500">Kho tệp riêng</div>
+          <div className="text-xs font-medium text-slate-500">Kho tệp riêng</div>
           <div className="mt-1 font-mono text-micro text-slate-600 truncate">{currentDept.toLowerCase()}-documents</div>
         </div>
       </aside>
@@ -638,7 +638,7 @@ export const WorkspaceTab: React.FC = () => {
         <div className={`grid grid-cols-2 ${isManagerOrExec ? 'md:grid-cols-5' : 'md:grid-cols-4'} border-b border-slate-200 bg-slate-50/60 shrink-0`}>
           {stats.map((s, i) => (
             <div key={s.label} className={`px-4 py-2.5 min-w-0 ${i > 0 ? 'border-l border-slate-200' : ''}`}>
-              <div className="text-micro font-semibold uppercase tracking-wider text-slate-500 truncate">{s.label}</div>
+              <div className="text-xs font-medium text-slate-500 truncate">{s.label}</div>
               <div className={`mt-0.5 text-lg font-semibold tabular-nums leading-tight ${s.tone}`}>{fmtNumber(s.value)}</div>
             </div>
           ))}
@@ -727,7 +727,7 @@ export const WorkspaceTab: React.FC = () => {
 
       {/* Cột phải: chi tiết tệp đang chọn */}
       {showInspector && activeSelectedDoc && (
-        <aside className="hidden 2xl:flex w-72 shrink-0 border-l border-slate-200 bg-white flex-col min-h-0">
+        <aside className="hidden 2xl:flex w-72 shrink-0 border-l border-slate-200 bg-card flex-col min-h-0">
           <div className="h-11 px-4 border-b border-slate-200 flex items-center justify-between shrink-0">
             <span className="text-data font-semibold text-slate-900">Chi tiết tệp</span>
             <IconButton size="sm" ghost title="Ẩn bảng chi tiết" aria-label="Ẩn bảng chi tiết" onClick={() => setIsInspectorOpen(false)}>

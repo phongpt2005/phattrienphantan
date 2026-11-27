@@ -121,11 +121,11 @@ export const CommandMenu: React.FC<CommandMenuProps> = ({ isOpen, onClose, onSel
   let lastGroup = '';
 
   return (
-    <div className="fixed inset-0 z-50 flex items-start justify-center pt-[12vh] px-4 bg-slate-900/40 animate-fade-in" onMouseDown={onClose}>
+    <div className="fixed inset-0 z-50 flex items-start justify-center pt-[12vh] px-4 bg-black/50 animate-fade-in" onMouseDown={onClose}>
       <div
         role="dialog"
         aria-label="Bảng lệnh"
-        className="w-full max-w-xl bg-white rounded-lg border border-slate-200 shadow-menu overflow-hidden"
+        className="w-full max-w-xl bg-card rounded-xl border border-slate-200 shadow-menu overflow-hidden"
         onMouseDown={(e) => e.stopPropagation()}
         onKeyDown={onKeyDown}
       >
@@ -150,7 +150,7 @@ export const CommandMenu: React.FC<CommandMenuProps> = ({ isOpen, onClose, onSel
             const active = i === cursor;
             return (
               <React.Fragment key={c.id}>
-                {header && <div className="px-2 pt-2 pb-1 text-micro font-semibold uppercase tracking-wider text-slate-500">{c.group}</div>}
+                {header && <div className="px-2 pt-2 pb-1 text-xs font-medium text-slate-500">{c.group}</div>}
                 <button
                   data-index={i}
                   onMouseEnter={() => setCursor(i)}

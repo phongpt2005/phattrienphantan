@@ -25,7 +25,7 @@ const SUGGESTIONS = ['hợp đồng', 'quy chế', 'hóa đơn', 'bảng lương
 const DLP_TOOLTIP = 'Tài liệu được chia sẻ ở chế độ chống thất thoát dữ liệu (DLP). Bạn không có quyền tải file về máy.';
 
 const SEARCH_INPUT =
-  'w-full h-10 pl-9 pr-3 rounded-md border border-slate-300 bg-white text-data text-slate-900 placeholder:text-slate-400 hover:border-slate-400 focus:outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20';
+  'w-full h-10 pl-9 pr-3 rounded-md border border-slate-300 bg-card text-data text-slate-900 placeholder:text-slate-400 hover:border-slate-400 focus:outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20';
 
 interface Outcome {
   query: string;
@@ -155,7 +155,7 @@ export const SearchTab: React.FC = () => {
           </div>
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div className="flex flex-wrap items-center gap-1.5">
-              <span className="text-micro font-semibold uppercase tracking-wider text-slate-500 mr-1">Gợi ý</span>
+              <span className="text-xs font-medium text-slate-500 mr-1">Gợi ý</span>
               {SUGGESTIONS.map((kw) => (
                 <button
                   key={kw}
@@ -164,7 +164,7 @@ export const SearchTab: React.FC = () => {
                     setQuery(kw);
                     void run(kw);
                   }}
-                  className="h-6 px-2 rounded-md border border-slate-200 bg-white hover:bg-slate-50 text-micro font-medium text-slate-700"
+                  className="h-6 px-2 rounded-md border border-slate-200 bg-card hover:bg-slate-50 text-micro font-medium text-slate-700"
                 >
                   {kw}
                 </button>
@@ -203,7 +203,7 @@ export const SearchTab: React.FC = () => {
               {outcome.fromCache && <span className="text-slate-400"> (từ bộ nhớ đệm)</span>}
             </span>
             <span className="flex items-center gap-1.5 flex-wrap">
-              <span className="text-micro font-semibold uppercase tracking-wider text-slate-500">Node</span>
+              <span className="text-xs font-medium text-slate-500">Node</span>
               {outcome.nodes.map((n) => (
                 <Pill
                   key={n.code}
@@ -304,7 +304,7 @@ export const SearchTab: React.FC = () => {
                       {r.description && <p className="text-data text-slate-500 mt-0.5 line-clamp-1">{r.description}</p>}
                       {r.content_match && r.highlight_snippet && (
                         <p className="text-data text-slate-600 mt-1.5 pl-2.5 border-l-2 border-emerald-300 line-clamp-2">
-                          <span className="text-micro font-semibold uppercase tracking-wider text-slate-500 mr-1.5">Trích nội dung tệp</span>
+                          <span className="text-xs font-medium text-slate-500 mr-1.5">Trích nội dung tệp</span>
                           {renderSnippet(r.highlight_snippet)}
                         </p>
                       )}

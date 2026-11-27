@@ -1,7 +1,7 @@
 /**
- * Bộ thành phần giao diện dùng chung, theo AGENTS.md:
- * mật độ cao (hàng bảng 40px, tiêu đề bảng 36px), nền slate, điểm nhấn navy (brand),
- * viền 1px, góc bo 6–8px, chữ mono cho mã, ngày và băm; không gradient, không bóng lớn, không biểu tượng trang trí.
+ * Bộ thành phần giao diện dùng chung, theo mẫu Shadcn Admin:
+ * thẻ bo góc có viền mảnh và bóng nhẹ, tab dạng viên, nút và ô nhập cao 36px, bảng thoáng, có chế độ sáng/tối
+ * (màu lấy từ biến CSS trong index.css). Chữ mono cho mã, ngày và băm.
  * Mọi màn hình nghiệp vụ dùng chung các thành phần này để nhất quán.
  */
 import React, { useEffect } from 'react';
@@ -12,10 +12,10 @@ export type Tone = 'neutral' | 'success' | 'info' | 'warning' | 'danger';
 
 const TONE: Record<Tone, string> = {
   neutral: 'bg-slate-100 text-slate-700 border-slate-200',
-  success: 'bg-emerald-50 text-emerald-800 border-emerald-200',
-  info: 'bg-blue-50 text-blue-800 border-blue-200',
+  success: 'bg-emerald-50 text-emerald-700 border-emerald-200',
+  info: 'bg-blue-50 text-blue-700 border-blue-200',
   warning: 'bg-amber-50 text-amber-800 border-amber-200',
-  danger: 'bg-red-50 text-red-800 border-red-200',
+  danger: 'bg-red-50 text-red-700 border-red-200',
 };
 
 const DOT: Record<Tone, string> = {
@@ -62,7 +62,7 @@ export const Pill: React.FC<{ tone?: Tone; children: React.ReactNode; title?: st
 }) => (
   <span
     title={title}
-    className={`inline-flex items-center gap-1 h-5 px-1.5 rounded-md border text-micro font-semibold whitespace-nowrap ${TONE[tone]} ${className}`}
+    className={`inline-flex items-center gap-1 h-5 px-2 rounded-full border text-[11px] font-semibold whitespace-nowrap ${TONE[tone]} ${className}`}
   >
     {children}
   </span>
@@ -72,7 +72,7 @@ export const Pill: React.FC<{ tone?: Tone; children: React.ReactNode; title?: st
 export const DeptBadge: React.FC<{ code?: string | null; className?: string }> = ({ code, className = '' }) =>
   code ? (
     <span
-      className={`inline-flex items-center h-5 px-1.5 rounded-md border font-mono text-micro font-semibold whitespace-nowrap ${
+      className={`inline-flex items-center h-5 px-2 rounded-full border font-mono text-[11px] font-semibold whitespace-nowrap ${
         code === '*' ? TONE.neutral : deptTone(code).badge
       } ${className}`}
     >
@@ -81,23 +81,28 @@ export const DeptBadge: React.FC<{ code?: string | null; className?: string }> =
   ) : null;
 
 const DOC_STATUS: Record<string, { label: string; tone: Tone }> = {
-  PUBLISHED: { label: 'ĐÃ BAN HÀNH', tone: 'success' },
-  DRAFT: { label: 'BẢN NHÁP', tone: 'warning' },
-  ARCHIVED: { label: 'LƯU TRỮ', tone: 'neutral' },
-  DELETED: { label: 'ĐÃ XÓA', tone: 'danger' },
+  PUBLISHED: { label: 'Đã ban hành', tone: 'success' },
+  DRAFT: { label: 'Bản nháp', tone: 'warning' },
+  ARCHIVED: { label: 'Lưu trữ', tone: 'neutral' },
+  DELETED: { label: 'Đã xóa', tone: 'danger' },
 };
 export const DocStatusPill: React.FC<{ status?: string | null }> = ({ status }) => {
   const s = DOC_STATUS[status ?? ''] ?? { label: status ?? '—', tone: 'neutral' as Tone };
-  return <Pill tone={s.tone}>{s.label}</Pill>;
+  return (
+    <Pill tone={s.tone}>
+      <span className={`w-1.5 h-1.5 rounded-full ${DOT[s.tone]}`} />
+      {s.label}
+    </Pill>
+  );
 };
 
 // Phân loại bảo mật (DLP). Backend dùng PUBLIC / DEPARTMENT / PRIVATE; bản cũ của giao diện dùng COMPANY / CONFIDENTIAL.
 const ACCESS: Record<string, { label: string; tone: Tone; hint: string }> = {
-  PUBLIC: { label: 'TOÀN DOANH NGHIỆP', tone: 'info', hint: 'Mọi phòng ban đều tìm và xem được' },
-  COMPANY: { label: 'TOÀN DOANH NGHIỆP', tone: 'info', hint: 'Mọi phòng ban đều tìm và xem được' },
-  DEPARTMENT: { label: 'BẢO MẬT PHÒNG BAN', tone: 'neutral', hint: 'Chỉ phòng ban sở hữu; phòng khác phải được chia sẻ' },
-  PRIVATE: { label: 'MẬT', tone: 'danger', hint: 'Chỉ phòng ban sở hữu, không hiện trong danh mục xin quyền' },
-  CONFIDENTIAL: { label: 'MẬT', tone: 'danger', hint: 'Chỉ phòng ban sở hữu, không hiện trong danh mục xin quyền' },
+  PUBLIC: { label: 'Toàn doanh nghiệp', tone: 'info', hint: 'Mọi phòng ban đều tìm và xem được' },
+  COMPANY: { label: 'Toàn doanh nghiệp', tone: 'info', hint: 'Mọi phòng ban đều tìm và xem được' },
+  DEPARTMENT: { label: 'Nội bộ phòng ban', tone: 'neutral', hint: 'Chỉ phòng ban sở hữu; phòng khác phải được chia sẻ' },
+  PRIVATE: { label: 'Mật', tone: 'danger', hint: 'Chỉ phòng ban sở hữu, không hiện trong danh mục xin quyền' },
+  CONFIDENTIAL: { label: 'Mật', tone: 'danger', hint: 'Chỉ phòng ban sở hữu, không hiện trong danh mục xin quyền' },
 };
 export const AccessPill: React.FC<{ level?: string | null }> = ({ level }) => {
   const a = ACCESS[level ?? ''] ?? { label: level ?? '—', tone: 'neutral' as Tone, hint: '' };
@@ -111,22 +116,27 @@ export const AccessPill: React.FC<{ level?: string | null }> = ({ level }) => {
 export const PermissionPill: React.FC<{ permission?: string | null }> = ({ permission }) =>
   permission === 'DOWNLOAD' ? (
     <Pill tone="success" title="Được xem và tải bản gốc về máy">
-      ĐƯỢC TẢI VỀ
+      Được tải về
     </Pill>
   ) : (
     <Pill tone="info" title="Chỉ xem trực tuyến, không tải về (chính sách chống thất thoát dữ liệu)">
-      CHỈ XEM - DLP
+      Chỉ xem
     </Pill>
   );
 
 const REQUEST_STATUS: Record<string, { label: string; tone: Tone }> = {
-  PENDING: { label: 'CHỜ DUYỆT', tone: 'warning' },
-  APPROVED: { label: 'ĐÃ DUYỆT', tone: 'success' },
-  REJECTED: { label: 'TỪ CHỐI', tone: 'danger' },
+  PENDING: { label: 'Chờ duyệt', tone: 'warning' },
+  APPROVED: { label: 'Đã duyệt', tone: 'success' },
+  REJECTED: { label: 'Từ chối', tone: 'danger' },
 };
 export const RequestStatusPill: React.FC<{ status?: string | null }> = ({ status }) => {
   const s = REQUEST_STATUS[status ?? ''] ?? { label: status ?? '—', tone: 'neutral' as Tone };
-  return <Pill tone={s.tone}>{s.label}</Pill>;
+  return (
+    <Pill tone={s.tone}>
+      <span className={`w-1.5 h-1.5 rounded-full ${DOT[s.tone]}`} />
+      {s.label}
+    </Pill>
+  );
 };
 
 export const StatusDot: React.FC<{ tone?: Tone; className?: string }> = ({ tone = 'neutral', className = '' }) => (
@@ -134,27 +144,34 @@ export const StatusDot: React.FC<{ tone?: Tone; className?: string }> = ({ tone 
 );
 
 export const Kbd: React.FC<{ children: React.ReactNode }> = ({ children }) => (
-  <kbd className="inline-flex items-center h-5 px-1.5 rounded border border-slate-300 bg-white font-mono text-micro text-slate-500">
+  <kbd className="inline-flex items-center h-5 px-1.5 rounded border border-slate-200 bg-slate-100 font-mono text-[10px] font-medium text-slate-500">
     {children}
   </kbd>
 );
 
-/** Ô chữ cái đầu của tên (hai chữ đầu và cuối), không dùng ảnh đại diện. */
+const AVATAR_COLORS = [
+  'bg-blue-100 text-blue-700',
+  'bg-emerald-100 text-emerald-700',
+  'bg-amber-100 text-amber-800',
+  'bg-red-100 text-red-700',
+  'bg-brand-100 text-brand-700',
+];
+
+/** Ô tròn chữ cái đầu của tên, màu theo tên (không dùng ảnh đại diện). */
 export const Avatar: React.FC<{ name?: string | null; size?: 'sm' | 'md'; tone?: 'light' | 'dark'; className?: string }> = ({
   name,
   size = 'sm',
-  tone = 'light',
   className = '',
 }) => {
   const parts = (name || '').trim().split(/\s+/).filter(Boolean);
   const first = parts[0]?.[0] ?? '?';
   const last = parts.length > 1 ? parts[parts.length - 1][0] : '';
   const initials = (first + last).toUpperCase();
-  const palette = tone === 'dark' ? 'bg-white/10 border-white/10 text-white' : 'bg-slate-100 border-slate-200 text-slate-700';
+  const hash = [...(name || '?')].reduce((a, c) => a + c.charCodeAt(0), 0);
   return (
     <span
-      className={`inline-flex items-center justify-center rounded-md border font-semibold shrink-0 ${palette} ${
-        size === 'md' ? 'w-8 h-8 text-data' : 'w-7 h-7 text-micro'
+      className={`inline-flex items-center justify-center rounded-full font-semibold shrink-0 ${AVATAR_COLORS[hash % AVATAR_COLORS.length]} ${
+        size === 'md' ? 'w-9 h-9 text-sm' : 'w-8 h-8 text-xs'
       } ${className}`}
     >
       {initials}
@@ -162,18 +179,18 @@ export const Avatar: React.FC<{ name?: string | null; size?: 'sm' | 'md'; tone?:
   );
 };
 
-// ---------------------------------------------------------------- khung trang và panel
+// ---------------------------------------------------------------- khung trang và thẻ
 export const PageHeader: React.FC<{ title: string; description?: React.ReactNode; meta?: React.ReactNode; actions?: React.ReactNode }> = ({
   title,
   description,
   meta,
   actions,
 }) => (
-  <header className="flex flex-col md:flex-row md:items-end justify-between gap-3 pb-4">
+  <header className="flex flex-col md:flex-row md:items-end justify-between gap-4 pb-5">
     <div className="min-w-0">
-      {meta && <div className="flex items-center gap-2 mb-1.5 text-micro font-semibold uppercase tracking-wider text-slate-500">{meta}</div>}
-      <h1 className="text-xl font-semibold text-slate-900 tracking-tight">{title}</h1>
-      {description && <p className="text-data text-slate-500 mt-1 max-w-3xl">{description}</p>}
+      {meta && <div className="flex items-center gap-2 mb-2 text-xs font-medium text-slate-500">{meta}</div>}
+      <h1 className="text-2xl font-bold text-slate-900 tracking-tight">{title}</h1>
+      {description && <p className="text-sm text-slate-500 mt-1 max-w-3xl">{description}</p>}
     </div>
     {actions && <div className="flex items-center gap-2 shrink-0 flex-wrap">{actions}</div>}
   </header>
@@ -186,12 +203,12 @@ export const Panel: React.FC<{ title?: string; note?: React.ReactNode; actions?:
   children,
   className = '',
 }) => (
-  <section className={`bg-white border border-slate-200 rounded-lg overflow-hidden ${className}`}>
+  <section className={`bg-card border border-slate-200 rounded-xl shadow-sm overflow-hidden ${className}`}>
     {(title || actions) && (
-      <div className="h-10 px-3.5 border-b border-slate-200 bg-slate-50/70 flex items-center justify-between gap-3">
-        <div className="flex items-baseline gap-2.5 min-w-0">
-          {title && <h2 className="text-data font-semibold text-slate-900 whitespace-nowrap">{title}</h2>}
-          {note && <span className="text-micro text-slate-500 truncate">{note}</span>}
+      <div className="px-5 pt-4 pb-3 flex items-center justify-between gap-3">
+        <div className="min-w-0">
+          {title && <h2 className="text-[15px] font-semibold text-slate-900 tracking-tight whitespace-nowrap">{title}</h2>}
+          {note && <p className="text-xs text-slate-500 truncate mt-0.5">{note}</p>}
         </div>
         {actions && <div className="flex items-center gap-2 shrink-0">{actions}</div>}
       </div>
@@ -200,35 +217,42 @@ export const Panel: React.FC<{ title?: string; note?: React.ReactNode; actions?:
   </section>
 );
 
-const KPI_ACCENT: Record<'default' | 'danger' | 'warning', string> = {
-  default: 'bg-brand-500',
-  danger: 'bg-red-500',
-  warning: 'bg-amber-500',
+const KPI_ICON: Record<'default' | 'danger' | 'warning', string> = {
+  default: 'bg-brand-50 text-brand-600',
+  danger: 'bg-red-50 text-red-600',
+  warning: 'bg-amber-50 text-amber-600',
 };
 const KPI_VALUE: Record<'default' | 'danger' | 'warning', string> = {
   default: 'text-slate-900',
-  danger: 'text-red-700',
-  warning: 'text-amber-700',
+  danger: 'text-red-600',
+  warning: 'text-amber-600',
 };
-export const Kpi: React.FC<{ label: string; value: React.ReactNode; hint?: React.ReactNode; tone?: 'default' | 'danger' | 'warning' }> = ({
-  label,
-  value,
-  hint,
-  tone = 'default',
-}) => (
-  <div className="relative bg-white border border-slate-200 rounded-lg px-4 py-3 overflow-hidden">
-    <span aria-hidden="true" className={`absolute inset-x-0 top-0 h-0.5 ${KPI_ACCENT[tone]}`} />
-    <div className="text-micro font-semibold uppercase tracking-wider text-slate-500 truncate">{label}</div>
-    <div className={`mt-1.5 text-2xl font-semibold tabular-nums leading-none ${KPI_VALUE[tone]}`}>{value}</div>
-    {hint && <div className="mt-1.5 text-micro text-slate-500 truncate">{hint}</div>}
+export const Kpi: React.FC<{
+  label: string;
+  value: React.ReactNode;
+  hint?: React.ReactNode;
+  tone?: 'default' | 'danger' | 'warning';
+  icon?: React.ComponentType<{ className?: string }>;
+}> = ({ label, value, hint, tone = 'default', icon: Icon }) => (
+  <div className="bg-card border border-slate-200 rounded-xl shadow-sm p-5">
+    <div className="flex items-start justify-between gap-3">
+      <div className="text-sm font-medium text-slate-500 truncate">{label}</div>
+      {Icon ? (
+        <span className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${KPI_ICON[tone]}`}>
+          <Icon className="w-4 h-4" />
+        </span>
+      ) : (
+        <span className={`w-2 h-2 mt-1.5 rounded-full shrink-0 ${tone === 'danger' ? 'bg-red-500' : tone === 'warning' ? 'bg-amber-500' : 'bg-brand-500'}`} />
+      )}
+    </div>
+    <div className={`mt-2 text-[28px] font-bold tracking-tight tabular-nums leading-none ${KPI_VALUE[tone]}`}>{value}</div>
+    {hint && <div className="mt-2 text-xs text-slate-500 truncate">{hint}</div>}
   </div>
 );
 
 // ---------------------------------------------------------------- bảng
 export const Th: React.FC<{ children?: React.ReactNode; className?: string }> = ({ children, className = '' }) => (
-  <th
-    className={`h-9 px-3 text-micro font-semibold uppercase tracking-wider text-slate-500 text-left whitespace-nowrap bg-slate-50 border-b border-slate-200 ${className}`}
-  >
+  <th className={`h-10 px-3 text-xs font-medium text-slate-500 text-left whitespace-nowrap bg-slate-50 border-y border-slate-200 ${className}`}>
     {children}
   </th>
 );
@@ -237,25 +261,25 @@ export const Td: React.FC<{ children?: React.ReactNode; className?: string; colS
     {children}
   </td>
 );
-export const ROW = 'h-10 border-b border-slate-100 last:border-0 hover:bg-brand-50/50 transition-colors';
+export const ROW = 'h-12 border-b border-slate-200 last:border-0 hover:bg-slate-50 transition-colors';
 
 export const EmptyState: React.FC<{ title: string; hint?: React.ReactNode; action?: React.ReactNode }> = ({ title, hint, action }) => (
-  <div className="px-4 py-12 text-center">
-    <div className="text-data font-semibold text-slate-800">{title}</div>
-    {hint && <div className="text-data text-slate-500 mt-1 max-w-md mx-auto">{hint}</div>}
-    {action && <div className="mt-3 flex justify-center">{action}</div>}
+  <div className="px-4 py-14 text-center">
+    <div className="text-sm font-semibold text-slate-800">{title}</div>
+    {hint && <div className="text-sm text-slate-500 mt-1 max-w-md mx-auto">{hint}</div>}
+    {action && <div className="mt-4 flex justify-center">{action}</div>}
   </div>
 );
 
 export const LoadingRows: React.FC<{ label?: string }> = ({ label = 'Đang tải dữ liệu...' }) => (
-  <div className="px-4 py-10 flex items-center justify-center gap-2 text-data text-slate-500">
+  <div className="px-4 py-12 flex items-center justify-center gap-2 text-sm text-slate-500">
     <Loader2 className="w-4 h-4 animate-spin" /> {label}
   </div>
 );
 
 /** Thanh tỉ lệ ngang cho bảng phân bổ. */
 export const Bar: React.FC<{ value: number; max: number; className?: string }> = ({ value, max, className = 'bg-brand-500' }) => (
-  <div className="h-1.5 w-full bg-slate-100 rounded-full overflow-hidden">
+  <div className="h-2 w-full bg-slate-100 rounded-full overflow-hidden">
     <div
       className={`h-full rounded-full ${className}`}
       style={{ width: `${max > 0 ? Math.max(2, Math.round((value / max) * 100)) : 0}%` }}
@@ -264,13 +288,10 @@ export const Bar: React.FC<{ value: number; max: number; className?: string }> =
 );
 
 // ---------------------------------------------------------------- form
-export const INPUT =
-  'h-8 w-full px-2.5 rounded-md border border-slate-300 bg-white text-data text-slate-900 placeholder:text-slate-400 hover:border-slate-400 focus:outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20';
-export const SELECT =
-  'h-8 px-2.5 rounded-md border border-slate-300 bg-white text-data font-medium text-slate-700 hover:border-slate-400 focus:outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20';
-
-export const TEXTAREA =
-  'w-full px-2.5 py-2 rounded-md border border-slate-300 bg-white text-data text-slate-900 placeholder:text-slate-400 hover:border-slate-400 focus:outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20 resize-none';
+const FOCUS = 'focus:outline-none focus:border-brand-500 focus:ring-[3px] focus:ring-brand-500/20';
+export const INPUT = `h-9 w-full px-3 rounded-md border border-slate-200 bg-card text-sm text-slate-900 placeholder:text-slate-400 shadow-sm transition-colors ${FOCUS}`;
+export const SELECT = `h-9 px-3 rounded-md border border-slate-200 bg-card text-sm font-medium text-slate-700 shadow-sm transition-colors ${FOCUS}`;
+export const TEXTAREA = `w-full px-3 py-2 rounded-md border border-slate-200 bg-card text-sm text-slate-900 placeholder:text-slate-400 shadow-sm transition-colors resize-none ${FOCUS}`;
 
 export const SearchField: React.FC<React.InputHTMLAttributes<HTMLInputElement> & { wrapperClassName?: string }> = ({
   wrapperClassName = '',
@@ -278,8 +299,8 @@ export const SearchField: React.FC<React.InputHTMLAttributes<HTMLInputElement> &
   ...rest
 }) => (
   <label className={`relative flex items-center ${wrapperClassName}`}>
-    <Search aria-hidden="true" className="absolute left-2.5 w-3.5 h-3.5 text-slate-400 pointer-events-none" />
-    <input type="search" {...rest} className={`${INPUT} pl-8 ${className}`} />
+    <Search aria-hidden="true" className="absolute left-3 w-4 h-4 text-slate-400 pointer-events-none" />
+    <input type="search" {...rest} className={`${INPUT} pl-9 ${className}`} />
   </label>
 );
 
@@ -290,37 +311,37 @@ export const Field: React.FC<{ label: string; hint?: React.ReactNode; htmlFor?: 
   children,
   className = '',
 }) => (
-  <div className={`flex flex-col gap-1 ${className}`}>
-    <label htmlFor={htmlFor} className="text-micro font-semibold uppercase tracking-wider text-slate-500">
+  <div className={`flex flex-col gap-1.5 ${className}`}>
+    <label htmlFor={htmlFor} className="text-sm font-medium text-slate-900">
       {label}
     </label>
     {children}
-    {hint && <span className="text-micro text-slate-500">{hint}</span>}
+    {hint && <span className="text-xs text-slate-500">{hint}</span>}
   </div>
 );
 
 type ButtonVariant = 'primary' | 'secondary' | 'danger' | 'ghost';
 const BTN: Record<ButtonVariant, string> = {
-  primary: 'bg-brand-500 hover:bg-brand-600 text-white border-brand-500 hover:border-brand-600 shadow-sm',
-  secondary: 'bg-white hover:bg-slate-50 text-slate-700 hover:text-slate-900 border-slate-300 shadow-sm',
-  danger: 'bg-white hover:bg-red-50 text-red-700 border-red-200 hover:border-red-300',
-  ghost: 'bg-transparent hover:bg-slate-100 text-slate-600 hover:text-slate-900 border-transparent',
+  primary: 'bg-brand-500 hover:bg-brand-600 text-white border-transparent shadow-sm',
+  secondary: 'bg-card hover:bg-slate-100 text-slate-900 border-slate-200 shadow-sm',
+  danger: 'bg-red-500 hover:bg-red-600 text-white border-transparent shadow-sm',
+  ghost: 'bg-transparent hover:bg-slate-100 text-slate-700 hover:text-slate-900 border-transparent',
 };
 export const Button: React.FC<
   React.ButtonHTMLAttributes<HTMLButtonElement> & { variant?: ButtonVariant; size?: 'sm' | 'md'; icon?: React.ComponentType<{ className?: string }> }
 > = ({ variant = 'secondary', size = 'md', icon: Icon, children, className = '', ...rest }) => (
   <button
     {...rest}
-    className={`inline-flex items-center justify-center gap-1.5 rounded-md border font-semibold whitespace-nowrap transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400 disabled:opacity-50 disabled:cursor-not-allowed ${
-      size === 'sm' ? 'h-7 px-2.5 text-micro' : 'h-8 px-3 text-data'
+    className={`inline-flex items-center justify-center gap-2 rounded-md border font-medium whitespace-nowrap transition-colors focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-brand-500/30 disabled:opacity-50 disabled:pointer-events-none ${
+      size === 'sm' ? 'h-8 px-3 text-xs' : 'h-9 px-4 text-sm'
     } ${BTN[variant]} ${className}`}
   >
-    {Icon && <Icon className="w-3.5 h-3.5 shrink-0" />}
+    {Icon && <Icon className="w-4 h-4 shrink-0" />}
     {children}
   </button>
 );
 
-/** Nhóm nút chọn một trong vài giá trị (bộ lọc nhanh). */
+/** Nhóm nút chọn một trong vài giá trị (bộ lọc nhanh), dạng viên như TabsList của Shadcn. */
 export function Segmented<T extends string>({
   value,
   onChange,
@@ -333,7 +354,7 @@ export function Segmented<T extends string>({
   className?: string;
 }) {
   return (
-    <div role="group" className={`inline-flex items-center h-7 p-0.5 rounded-md bg-slate-100 border border-slate-200 ${className}`}>
+    <div role="group" className={`inline-flex items-center h-9 p-1 rounded-lg bg-slate-100 ${className}`}>
       {options.map((o) => {
         const active = o.value === value;
         return (
@@ -342,8 +363,8 @@ export function Segmented<T extends string>({
             type="button"
             aria-pressed={active}
             onClick={() => onChange(o.value)}
-            className={`h-6 px-2.5 rounded text-micro font-semibold whitespace-nowrap transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400 ${
-              active ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-800'
+            className={`h-7 px-3 rounded-md text-xs font-medium whitespace-nowrap transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500/40 ${
+              active ? 'bg-card text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-900'
             }`}
           >
             {o.label}
@@ -366,21 +387,21 @@ export const IconButton: React.FC<React.ButtonHTMLAttributes<HTMLButtonElement> 
   <button
     type="button"
     {...rest}
-    className={`inline-flex items-center justify-center rounded-md border transition-colors disabled:opacity-50 disabled:cursor-not-allowed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400 ${
-      size === 'sm' ? 'h-7 w-7' : 'h-8 w-8'
+    className={`inline-flex items-center justify-center rounded-md border transition-colors disabled:opacity-50 disabled:pointer-events-none focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-brand-500/30 ${
+      size === 'sm' ? 'h-8 w-8' : 'h-9 w-9'
     } ${
       active
         ? 'bg-brand-50 border-brand-200 text-brand-700'
         : ghost
         ? 'border-transparent bg-transparent text-slate-500 hover:text-slate-900 hover:bg-slate-100'
-        : 'bg-white border-slate-300 text-slate-600 hover:text-slate-900 hover:bg-slate-50'
+        : 'bg-card border-slate-200 text-slate-600 shadow-sm hover:text-slate-900 hover:bg-slate-100'
     } ${className}`}
   >
     {children}
   </button>
 );
 
-/** Tab dạng gạch chân, dùng cho các nhóm nội dung trong cùng một màn hình. */
+/** Tab dạng viên (TabsList của Shadcn), dùng cho các nhóm nội dung trong cùng một màn hình. */
 export interface TabItem<T extends string> {
   value: T;
   label: string;
@@ -400,32 +421,34 @@ export function Tabs<T extends string>({
   className?: string;
 }) {
   return (
-    <div role="tablist" className={`flex items-end gap-5 border-b border-slate-200 ${className}`}>
-      {items.map((it) => {
-        const active = it.value === value;
-        return (
-          <button
-            key={it.value}
-            role="tab"
-            aria-selected={active}
-            onClick={() => onChange(it.value)}
-            className={`-mb-px h-9 border-b-2 text-data whitespace-nowrap transition-colors ${
-              active ? 'border-brand-500 text-brand-700 font-semibold' : 'border-transparent text-slate-500 hover:text-slate-800 font-medium'
-            }`}
-          >
-            {it.label}
-            {it.count !== undefined && (
-              <span
-                className={`ml-1.5 inline-flex items-center h-4 px-1.5 rounded font-mono text-micro ${
-                  active ? 'bg-brand-50 text-brand-700' : it.attention ? 'bg-amber-50 text-amber-800' : 'bg-slate-100 text-slate-600'
-                }`}
-              >
-                {it.count}
-              </span>
-            )}
-          </button>
-        );
-      })}
+    <div className={className}>
+      <div role="tablist" className="inline-flex items-center h-10 p-1 rounded-lg bg-slate-100 max-w-full overflow-x-auto">
+        {items.map((it) => {
+          const active = it.value === value;
+          return (
+            <button
+              key={it.value}
+              role="tab"
+              aria-selected={active}
+              onClick={() => onChange(it.value)}
+              className={`h-8 px-3 rounded-md text-sm font-medium whitespace-nowrap transition-all inline-flex items-center gap-1.5 ${
+                active ? 'bg-card text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-900'
+              }`}
+            >
+              {it.label}
+              {it.count !== undefined && (
+                <span
+                  className={`inline-flex items-center h-5 min-w-[20px] justify-center px-1.5 rounded-full text-[11px] font-semibold tabular-nums ${
+                    it.attention ? 'bg-amber-100 text-amber-800' : active ? 'bg-brand-500 text-white' : 'bg-slate-200 text-slate-600'
+                  }`}
+                >
+                  {it.count}
+                </span>
+              )}
+            </button>
+          );
+        })}
+      </div>
     </div>
   );
 }
@@ -455,33 +478,35 @@ export const Modal: React.FC<{
   if (!open) return null;
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 animate-fade-in">
-      <div className="absolute inset-0 bg-slate-900/40" onClick={onClose} aria-hidden="true" />
+      <div className="absolute inset-0 bg-black/50 backdrop-blur-[2px]" onClick={onClose} aria-hidden="true" />
       <div
         role="dialog"
         aria-modal="true"
         aria-label={title}
-        className={`relative w-full ${width} max-h-[88vh] bg-white rounded-lg border border-slate-200 shadow-menu flex flex-col`}
+        className={`relative w-full ${width} max-h-[88vh] bg-card rounded-xl border border-slate-200 shadow-menu flex flex-col animate-pop-in`}
       >
-        <div className="h-11 px-4 flex items-center justify-between border-b border-slate-200 shrink-0">
-          <h2 className="text-data font-semibold text-slate-900">{title}</h2>
+        <div className="px-6 pt-5 pb-1 flex items-start justify-between gap-4 shrink-0">
+          <div className="min-w-0">
+            <h2 className="text-lg font-semibold text-slate-900 tracking-tight">{title}</h2>
+            {description && <div className="mt-1 text-sm text-slate-500">{description}</div>}
+          </div>
           <button
             onClick={onClose}
             aria-label="Đóng"
-            className="p-1 rounded text-slate-400 hover:text-slate-700 hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400"
+            className="p-1 -mr-1 rounded-md text-slate-400 hover:text-slate-900 hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500/40"
           >
             <X className="w-4 h-4" />
           </button>
         </div>
-        {description && <div className="px-4 pt-3 text-data text-slate-500">{description}</div>}
-        <div className="p-4 overflow-y-auto">{children}</div>
-        {footer && <div className="px-4 py-3 border-t border-slate-200 bg-slate-50/70 flex items-center justify-end gap-2 shrink-0">{footer}</div>}
+        <div className="px-6 py-4 overflow-y-auto">{children}</div>
+        {footer && <div className="px-6 pb-5 pt-2 flex items-center justify-end gap-2 shrink-0">{footer}</div>}
       </div>
     </div>
   );
 };
 
 /**
- * Ngăn chi tiết trượt từ bên phải (AGENTS.md): danh sách phía sau vẫn giữ vị trí cuộn, bộ lọc và ngữ cảnh.
+ * Ngăn chi tiết trượt từ bên phải: danh sách phía sau vẫn giữ vị trí cuộn, bộ lọc và ngữ cảnh.
  */
 export const Drawer: React.FC<{
   open: boolean;
@@ -498,28 +523,28 @@ export const Drawer: React.FC<{
   const maxW = width === 'md' ? 'max-w-[520px]' : width === 'xl' ? 'max-w-[960px]' : 'max-w-[720px]';
   return (
     <div className="fixed inset-0 z-40 flex justify-end">
-      <div className="absolute inset-0 bg-slate-900/30" onClick={onClose} aria-hidden="true" />
+      <div className="absolute inset-0 bg-black/40 backdrop-blur-[1px] animate-fade-in" onClick={onClose} aria-hidden="true" />
       <aside
         role="dialog"
         aria-modal="true"
-        className={`relative w-full ${maxW} h-full bg-white border-l border-slate-200 shadow-drawer flex flex-col animate-slide-right`}
+        className={`relative w-full ${maxW} h-full bg-card border-l border-slate-200 shadow-drawer flex flex-col animate-slide-right`}
       >
-        <div className="h-12 px-4 border-b border-slate-200 flex items-center gap-3 shrink-0">
+        <div className="h-14 px-5 border-b border-slate-200 flex items-center gap-3 shrink-0">
           <div className="min-w-0 flex-1">
-            <div className="text-sm font-semibold text-slate-900 truncate">{title}</div>
-            {subtitle && <div className="text-micro text-slate-500 truncate">{subtitle}</div>}
+            <div className="text-base font-semibold text-slate-900 truncate tracking-tight">{title}</div>
+            {subtitle && <div className="text-xs text-slate-500 truncate">{subtitle}</div>}
           </div>
           {actions}
           <button
             onClick={onClose}
             aria-label="Đóng"
-            className="p-1.5 rounded text-slate-400 hover:text-slate-700 hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400"
+            className="p-1.5 rounded-md text-slate-400 hover:text-slate-900 hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500/40"
           >
             <X className="w-4 h-4" />
           </button>
         </div>
         <div className="flex-1 min-h-0 overflow-y-auto">{children}</div>
-        {footer && <div className="px-4 py-3 border-t border-slate-200 bg-slate-50/70 shrink-0 flex items-center gap-2">{footer}</div>}
+        {footer && <div className="px-5 py-3 border-t border-slate-200 bg-slate-50 shrink-0 flex items-center gap-2">{footer}</div>}
       </aside>
     </div>
   );

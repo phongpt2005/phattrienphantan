@@ -168,7 +168,7 @@ export const SystemStatusTab: React.FC = () => {
   return (
     <div className="space-y-4">
       {/* 1. Dải trạng thái tổng */}
-      <section className="bg-white border border-slate-200 rounded-lg overflow-hidden flex">
+      <section className="bg-card border border-slate-200 rounded-xl overflow-hidden flex">
         <div className={`w-1 shrink-0 ${o.bar}`} />
         <div className="flex-1 px-4 py-3.5 flex flex-col md:flex-row md:items-center justify-between gap-3">
           <div className="flex items-start gap-3 min-w-0">
@@ -180,7 +180,7 @@ export const SystemStatusTab: React.FC = () => {
           </div>
           <div className="flex items-center gap-2 shrink-0">
             <div className="text-right leading-tight mr-1">
-              <div className="text-micro font-semibold uppercase tracking-wider text-slate-500">Cập nhật lúc</div>
+              <div className="text-xs font-medium text-slate-500">Cập nhật lúc</div>
               <div className="font-mono text-data text-slate-800">{fmtClock(data.generatedAt)}</div>
             </div>
             <Button
@@ -341,7 +341,7 @@ export const SystemStatusTab: React.FC = () => {
               {groups.map((g) => (
                 <React.Fragment key={g}>
                   <tr className="bg-slate-50/70 border-b border-slate-100">
-                    <td colSpan={3} className="px-3.5 h-8 text-micro font-semibold uppercase tracking-wider text-slate-500">
+                    <td colSpan={3} className="px-3.5 h-8 text-xs font-medium text-slate-500">
                       {g}
                     </td>
                   </tr>

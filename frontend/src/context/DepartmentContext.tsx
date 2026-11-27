@@ -22,9 +22,9 @@ const TONES: DeptTone[] = [
   { badge: 'bg-blue-50 text-blue-800 border-blue-200', dot: 'bg-blue-500', text: 'text-blue-700' },
   { badge: 'bg-amber-50 text-amber-800 border-amber-200', dot: 'bg-amber-500', text: 'text-amber-700' },
   { badge: 'bg-emerald-50 text-emerald-800 border-emerald-200', dot: 'bg-emerald-500', text: 'text-emerald-700' },
-  { badge: 'bg-violet-50 text-violet-800 border-violet-200', dot: 'bg-violet-500', text: 'text-violet-700' },
-  { badge: 'bg-rose-50 text-rose-800 border-rose-200', dot: 'bg-rose-500', text: 'text-rose-700' },
-  { badge: 'bg-cyan-50 text-cyan-800 border-cyan-200', dot: 'bg-cyan-500', text: 'text-cyan-700' },
+  { badge: 'bg-violet-50 text-violet-800 border-violet-200 dark:bg-violet-500/15 dark:text-violet-300 dark:border-violet-500/30', dot: 'bg-violet-500', text: 'text-violet-700 dark:text-violet-300' },
+  { badge: 'bg-rose-50 text-rose-800 border-rose-200 dark:bg-rose-500/15 dark:text-rose-300 dark:border-rose-500/30', dot: 'bg-rose-500', text: 'text-rose-700 dark:text-rose-300' },
+  { badge: 'bg-cyan-50 text-cyan-800 border-cyan-200 dark:bg-cyan-500/15 dark:text-cyan-300 dark:border-cyan-500/30', dot: 'bg-cyan-500', text: 'text-cyan-700 dark:text-cyan-300' },
 ];
 const FIXED: Record<string, number> = { HR: 0, ACC: 1 };
 export const deptTone = (code?: string): DeptTone => {

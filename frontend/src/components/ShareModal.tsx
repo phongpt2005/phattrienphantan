@@ -118,7 +118,7 @@ export const ShareModal: React.FC<ShareModalProps> = ({ isOpen, docId, docTitle,
         </div>
 
         <div className="flex flex-col gap-1.5">
-          <span className="text-micro font-semibold uppercase tracking-wider text-slate-500">Quyền hạn (chính sách DLP)</span>
+          <span className="text-xs font-medium text-slate-500">Quyền hạn (chính sách DLP)</span>
           <div className="grid grid-cols-2 gap-2">
             <label
               className={`p-2.5 rounded-md border cursor-pointer flex flex-col gap-0.5 transition-colors ${

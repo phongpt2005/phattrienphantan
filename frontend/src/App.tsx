@@ -81,7 +81,7 @@ const AppContent: React.FC = () => {
             <WorkspaceTab />
           ) : (
             <div className="flex-1 min-h-0 overflow-y-auto">
-              <div className="max-w-[1280px] mx-auto w-full px-5 py-4">
+              <div className="max-w-[1400px] mx-auto w-full px-4 sm:px-6 py-6">
                 {currentTab === 'search' && <SearchTab />}
                 {currentTab === 'approvals' && isManagerOrExec && <ApprovalTab />}
                 {currentTab === 'system' && isExecutive && <SystemStatusTab />}

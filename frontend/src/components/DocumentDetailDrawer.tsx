@@ -300,7 +300,7 @@ export const DocumentDetailDrawer: React.FC<DocumentDetailDrawerProps> = ({
             {activeTab === 'METADATA' && (
               <>
                 {detail.status === 'DRAFT' && (
-                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 rounded-lg border border-amber-200 bg-amber-50 px-3.5 py-3">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 rounded-xl border border-amber-200 bg-amber-50 px-3.5 py-3">
                     <div className="flex items-start gap-2.5 min-w-0">
                       <Clock className="w-4 h-4 text-amber-700 shrink-0 mt-0.5" />
                       <div className="min-w-0">
@@ -338,15 +338,15 @@ export const DocumentDetailDrawer: React.FC<DocumentDetailDrawerProps> = ({
                   </Panel>
                 )}
 
-                <dl className="grid grid-cols-2 gap-px rounded-lg border border-slate-200 bg-slate-200 overflow-hidden">
+                <dl className="grid grid-cols-2 gap-px rounded-xl border border-slate-200 bg-slate-200 overflow-hidden">
                   {[
                     { k: 'Người khởi tạo', v: detail.creator?.fullName || detail.creator?.username || 'Hệ thống', mono: false },
                     { k: 'Ngày khởi tạo', v: fmtDate(detail.createdAt), mono: true },
                     { k: 'Danh mục nghiệp vụ', v: detail.category?.name || detail.category?.categoryName || 'Hồ sơ chung', mono: false },
                     { k: 'Kho lưu trữ', v: `Kho ${deptName(dept).replace(/^Phòng\s+/i, '') || dept}`, mono: false },
                   ].map((item) => (
-                    <div key={item.k} className="bg-white px-3 py-2.5 min-w-0">
-                      <dt className="text-micro font-semibold uppercase tracking-wider text-slate-500">{item.k}</dt>
+                    <div key={item.k} className="bg-card px-3 py-2.5 min-w-0">
+                      <dt className="text-xs font-medium text-slate-500">{item.k}</dt>
                       <dd className={`mt-0.5 text-data font-medium text-slate-900 truncate ${item.mono ? 'font-mono' : ''}`}>{item.v}</dd>
                     </div>
                   ))}
@@ -385,7 +385,7 @@ export const DocumentDetailDrawer: React.FC<DocumentDetailDrawerProps> = ({
                 </div>
 
                 {showAddVersion && (
-                  <form onSubmit={handleUploadVersion} className="rounded-lg border border-slate-200 bg-slate-50 p-3.5 space-y-3">
+                  <form onSubmit={handleUploadVersion} className="rounded-xl border border-slate-200 bg-slate-50 p-3.5 space-y-3">
                     <div className="flex items-center gap-1.5 text-data font-semibold text-slate-900">
                       <UploadCloud className="w-4 h-4 text-brand-600" />
                       Phát hành phiên bản v{(detail.currentVersion || 1) + 1}.0
@@ -396,7 +396,7 @@ export const DocumentDetailDrawer: React.FC<DocumentDetailDrawerProps> = ({
                         type="file"
                         required
                         onChange={(e) => setVersionFile(e.target.files ? e.target.files[0] : null)}
-                        className="block w-full text-data text-slate-600 file:mr-3 file:h-7 file:px-2.5 file:rounded-md file:border file:border-slate-300 file:bg-white file:text-micro file:font-semibold file:text-slate-700 hover:file:bg-slate-50 cursor-pointer"
+                        className="block w-full text-data text-slate-600 file:mr-3 file:h-7 file:px-2.5 file:rounded-md file:border file:border-slate-300 file:bg-card file:text-micro file:font-semibold file:text-slate-700 hover:file:bg-slate-50 cursor-pointer"
                       />
                     </Field>
                     <Field label="Ghi chú thay đổi" htmlFor="change-note">
@@ -480,7 +480,7 @@ export const DocumentDetailDrawer: React.FC<DocumentDetailDrawerProps> = ({
                 ) : auditLogs.length === 0 ? (
                   <EmptyState title="Chưa có nhật ký nào cho tài liệu này" />
                 ) : (
-                  <ul className="rounded-lg border border-slate-200 bg-white divide-y divide-slate-100">
+                  <ul className="rounded-xl border border-slate-200 bg-card divide-y divide-slate-100">
                     {auditLogs.map((log) => {
                       const badge = auditBadge(log);
                       return (
@@ -508,12 +508,12 @@ export const DocumentDetailDrawer: React.FC<DocumentDetailDrawerProps> = ({
             {/* ---------------- XEM TRƯỚC CÓ ĐÓNG DẤU DLP */}
             {activeTab === 'PREVIEW' && (
               <>
-                <div className="flex items-start gap-2.5 rounded-lg border border-blue-200 bg-blue-50 px-3.5 py-2.5 text-micro text-blue-800">
+                <div className="flex items-start gap-2.5 rounded-xl border border-blue-200 bg-blue-50 px-3.5 py-2.5 text-micro text-blue-800">
                   <ShieldCheck className="w-4 h-4 text-blue-700 shrink-0" />
                   <span>Chế độ xem trước nội bộ. Mọi lần truy xuất đều được ghi vào nhật ký kiểm toán.</span>
                 </div>
 
-                <div className="relative overflow-hidden rounded-lg border border-slate-200 bg-white p-5 min-h-[320px] select-none">
+                <div className="relative overflow-hidden rounded-xl border border-slate-200 bg-card p-5 min-h-[320px] select-none">
                   <div
                     aria-hidden="true"
                     className="pointer-events-none absolute inset-0 flex flex-col justify-around -rotate-[25deg] opacity-[0.06] font-mono text-data font-bold text-slate-900 whitespace-nowrap"
@@ -534,7 +534,7 @@ export const DocumentDetailDrawer: React.FC<DocumentDetailDrawerProps> = ({
                     </div>
 
                     <div>
-                      <div className="mb-1 text-micro font-semibold uppercase tracking-wider text-slate-500">Tóm tắt nội dung</div>
+                      <div className="mb-1 text-xs font-medium text-slate-500">Tóm tắt nội dung</div>
                       <p className="text-data text-slate-800 leading-relaxed whitespace-pre-wrap">
                         {detail.description || 'Không có mô tả chi tiết kèm theo.'}
                       </p>
@@ -594,7 +594,7 @@ export const DocumentDetailDrawer: React.FC<DocumentDetailDrawerProps> = ({
                     </Panel>
                   </form>
                 ) : (
-                  <div className="flex items-start gap-2.5 rounded-lg border border-red-200 bg-red-50 px-3.5 py-2.5 text-micro text-red-800">
+                  <div className="flex items-start gap-2.5 rounded-xl border border-red-200 bg-red-50 px-3.5 py-2.5 text-micro text-red-800">
                     <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
                     <span>Bạn không phải người tạo hồ sơ này. Chỉ người tạo hoặc Trưởng phòng mới được chỉnh sửa.</span>
                   </div>

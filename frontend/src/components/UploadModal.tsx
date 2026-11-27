@@ -169,10 +169,10 @@ export const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose, onSuc
         </div>
 
         <div className="flex flex-col gap-1">
-          <span className="text-micro font-semibold uppercase tracking-wider text-slate-500">Tệp tài liệu</span>
+          <span className="text-xs font-medium text-slate-500">Tệp tài liệu</span>
           <label
             htmlFor="file-upload"
-            className="flex flex-col items-center justify-center gap-1 rounded-lg border border-dashed border-slate-300 bg-slate-50/60 px-4 py-6 text-center cursor-pointer hover:border-brand-400 hover:bg-brand-50/40 transition-colors"
+            className="flex flex-col items-center justify-center gap-1 rounded-xl border border-dashed border-slate-300 bg-slate-50/60 px-4 py-6 text-center cursor-pointer hover:border-brand-400 hover:bg-brand-50/40 transition-colors"
           >
             <Upload className="w-5 h-5 text-slate-400" />
             <span className="text-data font-semibold text-slate-800 break-all">

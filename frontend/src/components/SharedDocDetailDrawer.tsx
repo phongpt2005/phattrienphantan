@@ -74,7 +74,7 @@ export const SharedDocDetailDrawer: React.FC<SharedDocDetailDrawerProps> = ({ is
         {activeTab === 'METADATA' && (
           <>
             <div
-              className={`flex items-start gap-2.5 rounded-lg border px-3.5 py-2.5 text-micro leading-relaxed ${
+              className={`flex items-start gap-2.5 rounded-xl border px-3.5 py-2.5 text-micro leading-relaxed ${
                 isDownloadPermitted ? 'border-emerald-200 bg-emerald-50 text-emerald-900' : 'border-blue-200 bg-blue-50 text-blue-900'
               }`}
             >
@@ -91,15 +91,15 @@ export const SharedDocDetailDrawer: React.FC<SharedDocDetailDrawerProps> = ({ is
               </span>
             </div>
 
-            <dl className="grid grid-cols-2 gap-px rounded-lg border border-slate-200 bg-slate-200 overflow-hidden">
+            <dl className="grid grid-cols-2 gap-px rounded-xl border border-slate-200 bg-slate-200 overflow-hidden">
               {[
                 { k: 'Đơn vị cung cấp', v: `Phòng ${sharedDoc.shared_by_dept}`, mono: true },
                 { k: 'Thời hạn hiệu lực', v: calculateDaysRemaining(sharedDoc.expires_at), mono: false, tone: 'text-amber-700' },
                 { k: 'Ngày cấp quyền', v: new Date(sharedDoc.created_at).toLocaleDateString('vi-VN'), mono: true },
                 { k: 'Chủ sở hữu bản gốc', v: sharedDoc.owner_name || `Cán bộ Phòng ${sharedDoc.shared_by_dept}`, mono: false },
               ].map((item) => (
-                <div key={item.k} className="bg-white px-3 py-2.5 min-w-0">
-                  <dt className="text-micro font-semibold uppercase tracking-wider text-slate-500">{item.k}</dt>
+                <div key={item.k} className="bg-card px-3 py-2.5 min-w-0">
+                  <dt className="text-xs font-medium text-slate-500">{item.k}</dt>
                   <dd className={`mt-0.5 text-data font-medium truncate ${item.mono ? 'font-mono' : ''} ${item.tone ?? 'text-slate-900'}`}>{item.v}</dd>
                 </div>
               ))}
@@ -132,12 +132,12 @@ export const SharedDocDetailDrawer: React.FC<SharedDocDetailDrawerProps> = ({ is
 
         {activeTab === 'PREVIEW' && (
           <>
-            <div className="flex items-start gap-2.5 rounded-lg border border-blue-200 bg-blue-50 px-3.5 py-2.5 text-micro text-blue-800">
+            <div className="flex items-start gap-2.5 rounded-xl border border-blue-200 bg-blue-50 px-3.5 py-2.5 text-micro text-blue-800">
               <ShieldCheck className="w-4 h-4 text-blue-700 shrink-0 mt-px" />
               <span>Trình xem được bảo vệ DLP ngay trong phiên làm việc của bạn. Mọi lần truy xuất đều được ghi nhật ký.</span>
             </div>
 
-            <div className="relative overflow-hidden rounded-lg border border-slate-200 bg-white p-5 min-h-[340px] select-none">
+            <div className="relative overflow-hidden rounded-xl border border-slate-200 bg-card p-5 min-h-[340px] select-none">
               <div
                 aria-hidden="true"
                 className="pointer-events-none absolute inset-0 flex flex-col justify-around -rotate-[25deg] opacity-[0.06] font-mono text-data font-bold text-slate-900 whitespace-nowrap"
@@ -160,7 +160,7 @@ export const SharedDocDetailDrawer: React.FC<SharedDocDetailDrawerProps> = ({ is
                 </div>
 
                 <div>
-                  <div className="mb-1 text-micro font-semibold uppercase tracking-wider text-slate-500">Nội dung trích lược</div>
+                  <div className="mb-1 text-xs font-medium text-slate-500">Nội dung trích lược</div>
                   <p className="text-data text-slate-800 leading-relaxed whitespace-pre-wrap">
                     {sharedDoc.description || 'Nội dung hồ sơ liên phòng ban đã được xác thực toàn vẹn.'}
                   </p>
