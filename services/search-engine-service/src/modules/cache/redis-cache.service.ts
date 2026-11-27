@@ -1,5 +1,6 @@
 import { Injectable, Logger, OnModuleInit, OnModuleDestroy } from '@nestjs/common';
 import Redis from 'ioredis';
+import { keepRedisAlive, redisConnectionOptions } from '@dms/common';
 
 @Injectable()
 export class RedisCacheService implements OnModuleInit, OnModuleDestroy {
@@ -8,13 +9,12 @@ export class RedisCacheService implements OnModuleInit, OnModuleDestroy {
   private defaultTtl: number;
 
   private isAvailable = false;
+  private keepAlive?: { markClosing: () => void };
 
   onModuleInit() {
     this.defaultTtl = parseInt(process.env.REDIS_CACHE_TTL || '300', 10);
     this.client = new Redis({
-      host: process.env.REDIS_HOST || 'localhost',
-      port: parseInt(process.env.REDIS_PORT || '6379', 10),
-      password: process.env.REDIS_PASSWORD || undefined,
+      ...redisConnectionOptions(),
       lazyConnect: true,
       enableOfflineQueue: false,
       connectTimeout: 1500,
@@ -22,6 +22,8 @@ export class RedisCacheService implements OnModuleInit, OnModuleDestroy {
       maxRetriesPerRequest: 1,
       retryStrategy: (times) => Math.min(times * 100, 2000),
     });
+    this.keepAlive = keepRedisAlive(this.client);
+    this.client.on('end', () => (this.isAvailable = false));
 
     this.client.on('connect', () => {
       this.isAvailable = true;
@@ -106,6 +108,7 @@ export class RedisCacheService implements OnModuleInit, OnModuleDestroy {
   }
 
   onModuleDestroy() {
+    this.keepAlive?.markClosing();
     this.client?.disconnect();
   }
 }

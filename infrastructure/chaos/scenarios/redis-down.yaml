@@ -1,0 +1,16 @@
+# P3 (bổ sung thành phần): cả hai bản Redis sập (bản chính và bản sao).
+# Thu hồi token theo thiết kế CHO QUA (fail-open, ADR-013): tìm kiếm và đăng nhập vẫn chạy; Redis bật lại thì vẫn đạt.
+# Trường hợp chỉ bản chính sập (Sentinel chuyển sang bản sao) do redis-sentinel-test.sh kiểm.
+name: redis-down
+description: "Cả hai bản Redis sập: đăng nhập và tìm kiếm vẫn chạy (thu hồi token cho qua theo thiết kế); Redis bật lại vẫn đạt"
+steps:
+  - {do: login, as: hr, dept: hr, user: hr_manager, password_env: DEMO_MANAGER_PASSWORD}
+  - {do: search, as: hr, q: "hop dong", expect_status: 200}
+  - {do: stop, containers: [redis, redis-2]}
+  - {do: wait, seconds: 3}
+  - {do: login, as: hr2, dept: hr, user: hr_staff, password_env: DEMO_STAFF_PASSWORD}
+  - {do: search, as: hr, q: "hop dong", expect_status: 200}
+  - {do: search, as: hr2, q: "hop dong", expect_status: 200}
+  - {do: start, containers: [redis, redis-2]}
+  - {do: wait_healthy, containers: [redis, redis-2], timeout: 120}
+  - {do: search, as: hr, q: "hop dong", expect_status: 200, within: 30}

@@ -3,20 +3,20 @@ import * as jwt from 'jsonwebtoken';
 import Redis from 'ioredis';
 import { JwtPayload } from './jwt-payload.interface';
 import { requireEnv } from '../config/env';
+import { keepRedisAlive, redisConnectionOptions } from '../config/redis';
 
 let sharedRedis: Redis | null = null;
 function revocationRedis(): Redis {
   if (!sharedRedis) {
     sharedRedis = new Redis({
-      host: process.env.REDIS_HOST || 'localhost',
-      port: Number(process.env.REDIS_PORT || 6379),
-      password: process.env.REDIS_PASSWORD || undefined,
+      ...redisConnectionOptions(),
       connectTimeout: 1000,
       commandTimeout: 300,
       maxRetriesPerRequest: 0,
       enableOfflineQueue: false,
     });
     sharedRedis.on('error', () => undefined); // lỗi được xử lý theo từng lần đọc, không làm sập tiến trình
+    keepRedisAlive(sharedRedis); // client dùng suốt đời tiến trình, không bao giờ đóng chủ động
   }
   return sharedRedis;
 }

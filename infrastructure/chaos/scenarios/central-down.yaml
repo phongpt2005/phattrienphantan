@@ -1,0 +1,13 @@
+# CSDL trung tâm sập (cả hai node Patroni): tìm kiếm vẫn 200 qua node và bản chụp;
+# sau khi phục hồi, tìm kiếm đầy đủ trở lại trong vòng 60 giây. Cùng nội dung với central-down.json.
+name: central-down
+description: "CSDL trung tâm sập (cả hai node Patroni): tìm kiếm vẫn 200 qua node và bản chụp; sau khi phục hồi tìm kiếm vẫn đạt"
+steps:
+  - {do: login, as: hr, dept: hr, user: hr_manager, password_env: DEMO_MANAGER_PASSWORD}
+  - {do: search, as: hr, q: "hop dong", expect_status: 200}
+  - {do: stop, containers: [central-pg-1, central-pg-2]}
+  - {do: wait, seconds: 6}
+  - {do: search, as: hr, q: "hop dong", expect_status: 200}
+  - {do: start, containers: [central-pg-1, central-pg-2]}
+  - {do: wait_healthy, containers: [central-pg-1, central-pg-2], timeout: 120}
+  - {do: search, as: hr, q: "hop dong", expect_status: 200, expect_partial: false, within: 60}

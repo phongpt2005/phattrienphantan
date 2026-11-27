@@ -85,6 +85,11 @@ services:
       JWT_SECRET: ${JWT_SECRET}
       INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN}
       REGISTRY_URL: http://search-engine-service:3003
+      # Khóa thu hồi token (ADR-013) qua nhóm Sentinel của Redis (trước đây mẫu phòng mới thiếu cấu hình Redis)
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+      REDIS_SENTINELS: redis-sentinel-1:26379,redis-sentinel-2:26379,redis-sentinel-3:26379
       OTEL_EXPORTER_OTLP_ENDPOINT: http://jaeger:4318
       SEED_DEMO_USERS: ${SEED_DEMO_USERS:-false}
       DEMO_ADMIN_PASSWORD: ${DEMO_ADMIN_PASSWORD:-}
@@ -124,6 +129,11 @@ services:
       JWT_SECRET: ${JWT_SECRET}
       INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN}
       REGISTRY_URL: http://search-engine-service:3003
+      # Khóa thu hồi token (ADR-013) qua nhóm Sentinel của Redis (trước đây mẫu phòng mới thiếu cấu hình Redis)
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+      REDIS_SENTINELS: redis-sentinel-1:26379,redis-sentinel-2:26379,redis-sentinel-3:26379
       OTEL_EXPORTER_OTLP_ENDPOINT: http://jaeger:4318
       SEED_DEMO_USERS: "false"
     depends_on:

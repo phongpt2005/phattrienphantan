@@ -31,6 +31,8 @@ x-department-env: &department-env
   REDIS_HOST: redis
   REDIS_PORT: 6379
   REDIS_PASSWORD: ${REDIS_PASSWORD}
+  # P3: nối qua Sentinel (tự theo bản chính mới khi Redis chuyển); bỏ biến này thì nối thẳng REDIS_HOST như cũ
+  REDIS_SENTINELS: redis-sentinel-1:26379,redis-sentinel-2:26379,redis-sentinel-3:26379
 
 # Một image duy nhất cho MỌI phòng ban; DEPT_CODE + DATABASE_URL + MINIO_* quyết định phòng ban.
 x-department-service: &department-service
@@ -666,24 +668,111 @@ services:
   # ================================================================
   #                   REDIS - CACHE CHO SEARCH ENGINE
   # ================================================================
-  redis:
+  # P3 (bổ sung thành phần): Redis có bản sao và 3 Sentinel. redis vẫn là bản chính ban đầu, dữ liệu giữ nguyên;
+  # cùng tham số như trước (lưu RDB), thêm masterauth và tên công bố. Khởi động: hỏi Sentinel bản chính hiện tại.
+  redis: &redis-node
     image: redis:7-alpine
     container_name: redis
     restart: unless-stopped
-    command: redis-server --requirepass ${REDIS_PASSWORD} --maxmemory 128mb --maxmemory-policy allkeys-lru
+    # Script khởi động hỏi tên các Sentinel; tên chưa có thì hỏi thất bại nhanh (DNS ngoài có thể treo)
+    dns_opt: ["timeout:1", "attempts:1"]
+    environment:
+      ME_IP: 172.28.250.11
+      DEFAULT_MASTER_IP: 172.28.250.11
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+    entrypoint: ["sh", "/etc/redis/start-redis.sh"]
     volumes:
       - redis-data:/data
+      - ./infrastructure/redis/start-redis.sh:/etc/redis/start-redis.sh:ro
     healthcheck:
       test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping"]
       interval: 10s
       timeout: 5s
       retries: 5
+    # IP cố định: Sentinel làm việc bằng IP (phân giải tên của Redis chặn vòng lặp; xem start-sentinel.sh).
+    # Dải 172.28.250.x nằm ngoài các địa chỉ Docker cấp tự động (cấp từ đầu dải).
     networks:
-      - dms-network
+      dms-network:
+        ipv4_address: 172.28.250.11
     deploy:
       resources:
         limits:
           memory: 192M
+
+  redis-2:
+    <<: *redis-node
+    container_name: redis-2
+    environment:
+      ME_IP: 172.28.250.12
+      DEFAULT_MASTER_IP: 172.28.250.11
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+    volumes:
+      - redis-2-data:/data
+      - ./infrastructure/redis/start-redis.sh:/etc/redis/start-redis.sh:ro
+    networks:
+      dms-network:
+        ipv4_address: 172.28.250.12
+    depends_on:
+      redis:
+        condition: service_healthy
+
+  # 3 Sentinel: quorum 2, chuyển bản chính sau 5 giây không trả lời. Trạng thái giữ trên volume riêng.
+  redis-sentinel-1: &redis-sentinel
+    image: redis:7-alpine
+    container_name: redis-sentinel-1
+    restart: unless-stopped
+    dns_opt: ["timeout:1", "attempts:1"]
+    environment:
+      ME_IP: 172.28.250.21
+      MASTER_IP: 172.28.250.11
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+    entrypoint: ["sh", "/etc/redis/start-sentinel.sh"]
+    volumes:
+      - redis-sentinel-1-data:/data
+      - ./infrastructure/redis/start-sentinel.sh:/etc/redis/start-sentinel.sh:ro
+    depends_on:
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli -p 26379 -a \"$$REDIS_PASSWORD\" --no-auth-warning ping | grep -q PONG"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      dms-network:
+        ipv4_address: 172.28.250.21
+    deploy:
+      resources:
+        limits:
+          memory: 32M
+
+  redis-sentinel-2:
+    <<: *redis-sentinel
+    container_name: redis-sentinel-2
+    environment:
+      ME_IP: 172.28.250.22
+      MASTER_IP: 172.28.250.11
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+    volumes:
+      - redis-sentinel-2-data:/data
+      - ./infrastructure/redis/start-sentinel.sh:/etc/redis/start-sentinel.sh:ro
+    networks:
+      dms-network:
+        ipv4_address: 172.28.250.22
+
+  redis-sentinel-3:
+    <<: *redis-sentinel
+    container_name: redis-sentinel-3
+    environment:
+      ME_IP: 172.28.250.23
+      MASTER_IP: 172.28.250.11
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+    volumes:
+      - redis-sentinel-3-data:/data
+      - ./infrastructure/redis/start-sentinel.sh:/etc/redis/start-sentinel.sh:ro
+    networks:
+      dms-network:
+        ipv4_address: 172.28.250.23
 
   # ================================================================
   #   APACHE KAFKA: cụm 3 broker KRaft (P1 B1 bản gọn; broker đơn cũ đã gỡ 2026-11-24)
@@ -810,6 +899,71 @@ services:
         limits:
           memory: 64M
 
+  # P3 (bổ sung thành phần): gateway thứ 2 + Keepalived giữ địa chỉ ảo 172.28.255.10 trong mạng container.
+  # Cùng cấu hình với nginx; KHÔNG mở cổng ra ngoài (chỉ mở 8000 và 3001). Giới hạn trên một máy: cổng 8000 của máy
+  # vẫn gắn vào container nginx; VIP chỉ bỏ điểm chết cho lối vào bên trong mạng. Trên nhiều máy, VIP nằm trên LAN.
+  nginx-2:
+    image: nginx:alpine
+    container_name: nginx-2
+    restart: unless-stopped
+    volumes:
+      - ./infrastructure/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./infrastructure/nginx/conf.d:/etc/nginx/conf.d:ro
+      - ./frontend/dist:/usr/share/nginx/html:ro
+    healthcheck:
+      test: ["CMD", "nginx", "-t"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - dms-network
+    deploy:
+      resources:
+        limits:
+          memory: 64M
+
+  # Lớp cân bằng tải trước 2 gateway: mỗi container chạy HAProxy (chia cho nginx và nginx-2, kiểm /health) và
+  # Keepalived giữ VIP 172.28.255.10 trên chính nó. Gateway sập: HAProxy chuyển sang gateway kia; bộ cân bằng sập:
+  # VIP sang bộ còn lại. (Bản đầu chạy Keepalived chung mạng với gateway: gateway dừng thì Docker không khởi động lại
+  # được container chạy kèm, VIP không quay lại; đã đổi sang mô hình này.)
+  keepalived-1: &keepalived
+    build:
+      context: .
+      dockerfile: infrastructure/keepalived/Dockerfile
+    image: dms/keepalived:2
+    container_name: keepalived-1
+    restart: unless-stopped
+    cap_add: [NET_ADMIN, NET_BROADCAST, NET_RAW]
+    dns_opt: ["timeout:1", "attempts:1"]
+    environment:
+      VIP: 172.28.255.10
+      PEER: keepalived-2
+      PRIORITY: 150
+      VRRP_PASS: ${INTERNAL_SERVICE_TOKEN}
+    depends_on:
+      - nginx
+      - nginx-2
+    healthcheck:
+      test: ["CMD-SHELL", "curl -s -m 2 -o /dev/null -f http://127.0.0.1:80/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    networks:
+      - dms-network
+    deploy:
+      resources:
+        limits:
+          memory: 48M
+
+  keepalived-2:
+    <<: *keepalived
+    container_name: keepalived-2
+    environment:
+      VIP: 172.28.255.10
+      PEER: keepalived-1
+      PRIORITY: 100
+      VRRP_PASS: ${INTERNAL_SERVICE_TOKEN}
+
   # ================================================================
   #     NODE PHÒNG NHÂN SỰ (HR) - image department-service dùng chung
   # ================================================================
@@ -930,6 +1084,7 @@ services:
       REDIS_HOST: redis
       REDIS_PORT: 6379
       REDIS_PASSWORD: ${REDIS_PASSWORD}
+      REDIS_SENTINELS: redis-sentinel-1:26379,redis-sentinel-2:26379,redis-sentinel-3:26379
       REDIS_CACHE_TTL: 300
       JWT_SECRET: ${JWT_SECRET}
       INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN}
@@ -1225,6 +1380,14 @@ volumes:
   # Redis Data
   redis-data:
     name: dms-redis-data
+  redis-2-data:
+    name: dms-redis-2-data
+  redis-sentinel-1-data:
+    name: dms-redis-sentinel-1-data
+  redis-sentinel-2-data:
+    name: dms-redis-sentinel-2-data
+  redis-sentinel-3-data:
+    name: dms-redis-sentinel-3-data
 
   # P1 B1: log của từng broker trong cụm 3 nút
   kafka-1-data:

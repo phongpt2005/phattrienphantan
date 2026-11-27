@@ -1,6 +1,7 @@
 export * from './storage/minio.service';
 export * from './utils/serialization';
 export * from './config/env';
+export * from './config/redis';
 export * from './auth/jwt-payload.interface';
 export * from './auth/password.util';
 export * from './auth/roles.decorator';

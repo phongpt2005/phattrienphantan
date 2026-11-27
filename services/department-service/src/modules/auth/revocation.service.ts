@@ -1,5 +1,6 @@
 import { Injectable, Logger, OnModuleDestroy } from '@nestjs/common';
 import Redis from 'ioredis';
+import { keepRedisAlive, redisConnectionOptions } from '@dms/common';
 
 /**
  * Khóa thu hồi token: tv:<mã phòng>:<userId> = phiên bản tối thiểu còn hợp lệ.
@@ -22,14 +23,13 @@ export class RevocationService implements OnModuleDestroy {
   private redis(): Redis {
     if (!this.client) {
       this.client = new Redis({
-        host: process.env.REDIS_HOST || 'localhost',
-        port: Number(process.env.REDIS_PORT || 6379),
-        password: process.env.REDIS_PASSWORD || undefined,
+        ...redisConnectionOptions(),
         connectTimeout: 1500,
         commandTimeout: 1000,
         maxRetriesPerRequest: 1,
       });
       this.client.on('error', (err) => this.logger.warn(`Redis (thu hồi token): ${err.message}`));
+      this.keepAlive.push(keepRedisAlive(this.client));
     }
     return this.client;
   }
@@ -41,15 +41,14 @@ export class RevocationService implements OnModuleDestroy {
   private reader(): Redis {
     if (!this.readClient) {
       this.readClient = new Redis({
-        host: process.env.REDIS_HOST || 'localhost',
-        port: Number(process.env.REDIS_PORT || 6379),
-        password: process.env.REDIS_PASSWORD || undefined,
+        ...redisConnectionOptions(),
         connectTimeout: 500,
         commandTimeout: 150,
         maxRetriesPerRequest: 0,
         enableOfflineQueue: false,
       });
       this.readClient.on('error', () => undefined); // lỗi được xử lý theo từng lần đọc
+      this.keepAlive.push(keepRedisAlive(this.readClient));
     }
     return this.readClient;
   }
@@ -75,6 +74,7 @@ export class RevocationService implements OnModuleDestroy {
 
   private lastReadWarn = 0;
   private readClient: Redis | null = null;
+  private readonly keepAlive: Array<{ markClosing: () => void }> = [];
 
   /** Ném lỗi nếu Redis không nhận khóa: người gọi phải báo thất bại, không báo thu hồi thành công. */
   async publish(dept: string, userId: number, minValidVersion: number): Promise<void> {
@@ -82,6 +82,7 @@ export class RevocationService implements OnModuleDestroy {
   }
 
   async onModuleDestroy() {
+    this.keepAlive.forEach((k) => k.markClosing());
     await this.client?.quit().catch(() => undefined);
     await this.readClient?.quit().catch(() => undefined);
   }

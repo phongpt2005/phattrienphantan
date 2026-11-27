@@ -1,0 +1,12 @@
+# MinIO của HR sập: tìm kiếm liên phòng vẫn 200 (dữ liệu tìm kiếm nằm trong CSDL, không nằm trong MinIO).
+# Cùng nội dung với minio-hr-down.json.
+name: minio-hr-down
+description: "MinIO của HR sập: tìm kiếm liên phòng vẫn 200 (dữ liệu tìm kiếm nằm trong CSDL, không nằm trong MinIO); sau khi phục hồi vẫn đạt"
+steps:
+  - {do: login, as: hr, dept: hr, user: hr_manager, password_env: DEMO_MANAGER_PASSWORD}
+  - {do: stop, containers: [minio-hr]}
+  - {do: wait, seconds: 3}
+  - {do: search, as: hr, q: "hop dong", expect_status: 200}
+  - {do: start, containers: [minio-hr]}
+  - {do: wait_healthy, containers: [minio-hr], timeout: 120}
+  - {do: search, as: hr, q: "hop dong", expect_status: 200}

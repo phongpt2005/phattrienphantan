@@ -2,7 +2,7 @@ import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/commo
 import Redis from 'ioredis';
 import { Observable, Subject, interval, merge } from 'rxjs';
 import { filter, finalize, map } from 'rxjs/operators';
-import { AuthenticatedUser, MetricsService, isExecutive } from '@dms/common';
+import { AuthenticatedUser, MetricsService, isExecutive, keepRedisAlive, redisConnectionOptions } from '@dms/common';
 
 export type NoticeType =
   | 'SHARE_GRANTED'
@@ -46,15 +46,14 @@ export class NotificationService implements OnModuleInit, OnModuleDestroy {
   private pub: Redis | null = null;
   private sub: Redis | null = null;
   private redisReady = false;
+  private keepAlive: Array<{ markClosing: () => void }> = [];
   private seq = 0;
 
   constructor(private readonly metrics: MetricsService) {}
 
   onModuleInit() {
     const opts = {
-      host: process.env.REDIS_HOST || 'localhost',
-      port: parseInt(process.env.REDIS_PORT || '6379', 10),
-      password: process.env.REDIS_PASSWORD || undefined,
+      ...redisConnectionOptions(),
       lazyConnect: true,
       maxRetriesPerRequest: 1,
       retryStrategy: (times: number) => Math.min(times * 200, 3000),
@@ -62,6 +61,8 @@ export class NotificationService implements OnModuleInit, OnModuleDestroy {
     this.pub = new Redis({ ...opts, enableOfflineQueue: false });
     this.sub = new Redis(opts);
     for (const c of [this.pub, this.sub]) c.on('error', () => undefined); // lỗi kết nối đã được xử lý bằng fallback
+    // Client rơi vào 'end' thì tự nối lại; client nghe kênh đăng ký lại ở sự kiện 'ready' bên dưới
+    this.keepAlive = [keepRedisAlive(this.pub), keepRedisAlive(this.sub)];
 
     this.sub.on('ready', () => {
       this.sub!
@@ -85,6 +86,7 @@ export class NotificationService implements OnModuleInit, OnModuleDestroy {
   }
 
   onModuleDestroy() {
+    this.keepAlive.forEach((k) => k.markClosing());
     this.pub?.disconnect();
     this.sub?.disconnect();
   }

@@ -2,10 +2,10 @@
 """
 KHUNG CHAOS (C1 của P2): chạy một kịch bản sự cố gồm các bước dừng/khởi động container, chờ, gọi API và kiểm SQL.
 
-  python infrastructure/chaos/run_scenario.py infrastructure/chaos/scenarios/central-down.json
+  python infrastructure/chaos/run_scenario.py infrastructure/chaos/scenarios/central-down.yaml
 
-Định dạng kịch bản: JSON (là tập con hợp lệ của YAML). Máy này chưa cài PyYAML, nên chưa dùng YAML thật.
-Chỉ dùng thư viện chuẩn của Python. Biến bí mật (mật khẩu) được đọc từ .env theo TÊN biến, không in giá trị.
+Định dạng kịch bản: YAML (cần PyYAML) hoặc JSON (chỉ cần thư viện chuẩn); hai bản cùng tên có cùng nội dung.
+Biến bí mật (mật khẩu) được đọc từ .env theo TÊN biến, không in giá trị.
 
 Các bước (trường "do"):
   stop / start   {"containers": [...]}                    docker stop / docker start
@@ -185,9 +185,20 @@ def restore():
         stopped.clear()
 
 
-def main(path):
+def load_scenario(path):
+    """Kịch bản .yaml/.yml đọc bằng PyYAML (safe_load); .json đọc bằng thư viện chuẩn. Cùng một cấu trúc."""
     with open(path, encoding="utf-8") as f:
-        scenario = json.load(f)
+        if path.lower().endswith((".yaml", ".yml")):
+            try:
+                import yaml  # PyYAML
+            except ImportError:
+                sys.exit("Kịch bản YAML cần PyYAML (pip install pyyaml); hoặc dùng bản .json cùng tên")
+            return yaml.safe_load(f)
+        return json.load(f)
+
+
+def main(path):
+    scenario = load_scenario(path)
     print("KỊCH BẢN: %s — %s" % (scenario["name"], scenario.get("description", "")))
     failed = 0
     try:
