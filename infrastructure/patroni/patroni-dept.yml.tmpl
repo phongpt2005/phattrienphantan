@@ -1,0 +1,56 @@
+# Cụm CSDL của MỘT PHÒNG BAN, 3 node trên 3 máy (Swarm). Entrypoint thay ${...} bằng biến môi trường lúc khởi động.
+# Biến: PATRONI_SCOPE (dms-<mã>), APP_DB (CSDL của phòng), SLOT_NAME (dbz_<mã>_outbox, slot của connector Debezium).
+# Slot logic là slot cố định của Patroni: được chép sang bản sao và đi theo máy chính khi chuyển (ADR-015).
+scope: ${PATRONI_SCOPE}
+
+bootstrap:
+  dcs:
+    ttl: 20
+    loop_wait: 5
+    retry_timeout: 5
+    maximum_lag_on_failover: 1048576
+    failsafe_mode: true
+    # 3 node: commit chờ ít nhất 1 trong 2 bản sao xác nhận (quorum). Mất một máy bất kỳ vẫn không mất dòng đã xác nhận.
+    synchronous_mode: quorum
+    synchronous_node_count: 1
+    synchronous_mode_strict: false
+    slots:
+      ${SLOT_NAME}:
+        type: logical
+        database: ${APP_DB}
+        plugin: pgoutput
+    postgresql:
+      use_pg_rewind: true
+      use_slots: true
+      parameters:
+        max_connections: 120
+        shared_buffers: 128MB
+        effective_cache_size: 256MB
+        work_mem: 4MB
+        maintenance_work_mem: 64MB
+        wal_level: logical
+        max_wal_senders: 10
+        max_replication_slots: 10
+        wal_keep_size: 1GB
+        hot_standby: "on"
+        hot_standby_feedback: "on"
+        wal_log_hints: "on"
+        log_statement: mod
+        log_timezone: Asia/Ho_Chi_Minh
+        timezone: Asia/Ho_Chi_Minh
+  post_bootstrap: /usr/local/bin/dms-post-bootstrap.sh
+
+postgresql:
+  data_dir: /var/lib/postgresql/data/pgroot
+  bin_dir: /usr/local/bin
+  use_unix_socket: true
+  use_unix_socket_repl: false
+  parameters:
+    unix_socket_directories: /var/run/postgresql
+  pg_hba:
+    - local all all trust
+    - host replication all 0.0.0.0/0 scram-sha-256
+    - host all all 0.0.0.0/0 scram-sha-256
+
+watchdog:
+  mode: "off"

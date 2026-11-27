@@ -13,6 +13,7 @@ export const TAB_LABELS: Record<AppTab, string> = {
   approvals: 'Trung tâm phê duyệt',
   system: 'Giám sát hệ thống',
   executive: 'Báo cáo điều hành',
+  cluster: 'Theo dõi chuyển đổi',
 };
 
 const ROLE_LABEL: Record<string, string> = {

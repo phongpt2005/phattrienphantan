@@ -1,0 +1,71 @@
+# Prometheus cho cụm 3 máy (Swarm). Không đọc docker.sock: tìm mục tiêu bằng DNS của mạng overlay.
+# Mọi node phòng ban mang bí danh chung "dept-all", mọi node Patroni mang "patroni-all" (DNS trả về địa chỉ của từng bản),
+# nên thêm phòng ban mới không phải sửa tệp này (R3).
+global:
+  scrape_interval: 5s
+  evaluation_interval: 5s
+
+rule_files:
+  - /etc/prometheus/rules.yml
+
+scrape_configs:
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+
+  - job_name: 'node'   # tài nguyên từng máy (node-exporter): biết máy nào chết
+    static_configs:
+      - targets: ['node-exporter-1:9100']
+        labels: { machine: m1 }
+      - targets: ['node-exporter-2:9100']
+        labels: { machine: m2 }
+      - targets: ['node-exporter-3:9100']
+        labels: { machine: m3 }
+
+  - job_name: 'dms-search-engine-service'
+    static_configs:
+      - targets: ['search-1:3003']
+        labels: { machine: m1 }
+      - targets: ['search-2:3003']
+        labels: { machine: m2 }
+      - targets: ['search-3:3003']
+        labels: { machine: m3 }
+
+  - job_name: 'dms-content-worker'
+    dns_sd_configs:
+      - names: ['tasks.content-worker']
+        type: A
+        port: 3010
+        refresh_interval: 5s
+
+  - job_name: 'dms-departments'
+    dns_sd_configs:
+      - names: ['dept-all']
+        type: A
+        port: 3000
+        refresh_interval: 5s
+
+  - job_name: 'kafka-exporter'
+    static_configs:
+      - targets: ['kafka-exporter:9308']
+
+  - job_name: 'etcd'
+    static_configs:
+      - targets: ['etcd-1:2379']
+        labels: { machine: m1 }
+      - targets: ['etcd-2:2379']
+        labels: { machine: m2 }
+      - targets: ['etcd-3:2379']
+        labels: { machine: m3 }
+
+  - job_name: 'patroni'
+    dns_sd_configs:
+      - names: ['patroni-all']
+        type: A
+        port: 8008
+        refresh_interval: 5s
+
+  - job_name: 'minio'
+    metrics_path: /minio/v2/metrics/cluster
+    static_configs:
+      - targets: ['minio-1:9000', 'minio-2:9000', 'minio-3:9000']

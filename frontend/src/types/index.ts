@@ -237,7 +237,58 @@ export interface DocumentAuditLogEntry {
 }
 
 // ---------------------------------------------------------------- Điều hướng
-export type AppTab = 'workspace' | 'search' | 'approvals' | 'executive' | 'system';
+export type AppTab = 'workspace' | 'search' | 'approvals' | 'executive' | 'system' | 'cluster';
+
+// ---------------------------------------------------------------- Bản đồ cụm (theo dõi chuyển đổi và phục hồi)
+export interface ClusterMember {
+  name: string;
+  machine: string;
+  status: 'up' | 'down';
+  role: string;
+  primary: boolean;
+  detail?: string;
+}
+export interface ClusterComponent {
+  key: string;
+  label: string;
+  kind: string;
+  leader: string | null;
+  leaderMachine: string | null;
+  hasLeaderRole: boolean;
+  status: 'ok' | 'warn' | 'down';
+  detail: string;
+  members: ClusterMember[];
+}
+export interface ClusterMachine {
+  id: string;
+  label: string;
+  address: string | null;
+  status: 'up' | 'down';
+  memoryUsedPct: number | null;
+  cpus: number | null;
+  leaders: string[];
+  members: Array<ClusterMember & { component: string }>;
+}
+export interface ClusterEvent {
+  id: string;
+  at: string;
+  kind: 'MACHINE_DOWN' | 'MACHINE_UP' | 'MEMBER_DOWN' | 'MEMBER_UP' | 'LEADER_CHANGED' | 'LEADER_LOST';
+  component: string | null;
+  member: string | null;
+  machine: string | null;
+  fromValue: string | null;
+  toValue: string | null;
+  seconds: number | null;
+  message: string;
+}
+export interface ClusterMap {
+  generatedAt: string;
+  pollSeconds: number;
+  answeredBy: string | null;
+  machines: ClusterMachine[];
+  components: ClusterComponent[];
+  events: ClusterEvent[];
+}
 
 // ---------------------------------------------------------------- Giám sát hệ thống (GET /api/search/executive/system)
 export type NodeLifecycle = 'PROVISIONING' | 'ACTIVE' | 'DEGRADED' | 'DRAINING' | 'RETIRED';

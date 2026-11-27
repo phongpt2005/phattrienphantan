@@ -30,6 +30,12 @@ groups:
         labels: {severity: critical}
         annotations:
           summary: "etcd {{ $labels.instance }} không có leader: Patroni không tự chuyển máy chính được (máy chính hiện tại vẫn ghi nhờ failsafe)"
+      - alert: MachineDown
+        expr: up{job="node"} == 0
+        for: 15s
+        labels: {severity: critical}
+        annotations:
+          summary: "Máy {{ $labels.machine }} không trả lời: các thành phần trên máy này đang được máy khác gánh thay"
       - alert: PatroniNoPrimary
         expr: sum by (scope) (patroni_primary) < 1
         for: 15s

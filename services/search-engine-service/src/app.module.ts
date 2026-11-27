@@ -20,6 +20,8 @@ import { InternalNotifyController } from './modules/notification/internal-notify
 import { MonitoringService } from './modules/monitoring/monitoring.service';
 import { SnapshotService } from './modules/snapshot/snapshot.service';
 import { ReconcileService } from './modules/reconcile/reconcile.service';
+import { ClusterController } from './modules/cluster/cluster.controller';
+import { ClusterService } from './modules/cluster/cluster.service';
 
 @Module({
   imports: [MetricsModule],
@@ -32,6 +34,7 @@ import { ReconcileService } from './modules/reconcile/reconcile.service';
     DocumentAccessController,
     NotificationController,
     InternalNotifyController,
+    ClusterController,
   ],
   providers: [
     {
@@ -66,6 +69,7 @@ import { ReconcileService } from './modules/reconcile/reconcile.service';
     MonitoringService,
     SnapshotService,
     ReconcileService,
+    ClusterService,
   ],
 })
 export class AppModule {}

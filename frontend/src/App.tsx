@@ -12,6 +12,7 @@ import { SearchTab } from './components/SearchTab';
 import { ApprovalTab } from './components/ApprovalTab';
 import { ExecutiveTab } from './components/ExecutiveTab';
 import { SystemStatusTab } from './components/SystemStatusTab';
+import { ClusterTab } from './components/ClusterTab';
 import { AppTab } from './types';
 
 const AppContent: React.FC = () => {
@@ -29,7 +30,7 @@ const AppContent: React.FC = () => {
   useEffect(() => {
     if (!user) return;
     if (currentTab === 'approvals' && !isManagerOrExec) setCurrentTab('workspace');
-    if ((currentTab === 'executive' || currentTab === 'system') && !isExecutive) setCurrentTab('workspace');
+    if ((currentTab === 'executive' || currentTab === 'system' || currentTab === 'cluster') && !isExecutive) setCurrentTab('workspace');
   }, [user, currentTab, isManagerOrExec, isExecutive]);
 
   // Ctrl+K / Cmd+K mở và đóng bảng lệnh ở mọi màn hình
@@ -86,6 +87,7 @@ const AppContent: React.FC = () => {
                 {currentTab === 'approvals' && isManagerOrExec && <ApprovalTab />}
                 {currentTab === 'system' && isExecutive && <SystemStatusTab />}
                 {currentTab === 'executive' && isExecutive && <ExecutiveTab />}
+                {currentTab === 'cluster' && isExecutive && <ClusterTab />}
               </div>
             </div>
           )}

@@ -939,6 +939,7 @@ services:
       VIP: 172.28.255.10
       PEER: keepalived-2
       PRIORITY: 150
+      LB_NAME: keepalived-1   # trả lời ở VIP:8404 để Bản đồ cụm biết bộ nào đang giữ địa chỉ ảo
       VRRP_PASS: ${INTERNAL_SERVICE_TOKEN}
     depends_on:
       - nginx
@@ -962,6 +963,7 @@ services:
       VIP: 172.28.255.10
       PEER: keepalived-1
       PRIORITY: 100
+      LB_NAME: keepalived-2
       VRRP_PASS: ${INTERNAL_SERVICE_TOKEN}
 
   # ================================================================
@@ -1097,6 +1099,9 @@ services:
       DEBEZIUM_URL: http://debezium:8083,http://debezium-2:8083
       PATRONI_CLUSTERS: "Trung tâm=central-pg-1:8008,central-pg-2:8008;Phòng HR=hr-pg-1:8008,hr-pg-2:8008"
       ETCD_ENDPOINTS: central-etcd:2379,central-etcd-2:2379,central-etcd-3:2379
+      # Bản đồ cụm (theo dõi chuyển đổi và phục hồi). Khi có 3 máy: thêm CLUSTER_MACHINES và CLUSTER_PLACEMENT
+      CLUSTER_HTTP: "Node HR=dept-hr:3000,dept-hr-2:3000;Node ACC=dept-acc:3000,dept-acc-2:3000;Node SALES=dept-sales:3000,dept-sales-2:3000;Gateway nginx=nginx:80,nginx-2:80"
+      CLUSTER_VIP: 172.28.255.10:8404
     depends_on:
       central-db:
         condition: service_healthy

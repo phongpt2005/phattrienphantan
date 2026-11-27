@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Activity, CornerDownLeft, FolderKanban, LineChart, Search, User, UserCheck } from 'lucide-react';
+import { Activity, CornerDownLeft, FolderKanban, LineChart, Network, Search, User, UserCheck } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useDepartments } from '../context/DepartmentContext';
 import { demoAccounts } from '../demo';
@@ -48,6 +48,7 @@ export const CommandMenu: React.FC<CommandMenuProps> = ({ isOpen, onClose, onSel
       { tab: 'search', icon: Search, hint: 'Tìm trên mọi phòng ban, kể cả nội dung tệp', visible: true },
       { tab: 'approvals', icon: UserCheck, hint: 'Duyệt yêu cầu xin quyền, quản lý chia sẻ', visible: isManagerOrExec },
       { tab: 'system', icon: Activity, hint: 'Node nào đang sống, lịch sử sự cố, cảnh báo', visible: isExecutive },
+      { tab: 'cluster', icon: Network, hint: 'Máy nào sống, ai giữ vai trò chính, quá trình chuyển đổi và phục hồi', visible: isExecutive },
       { tab: 'executive', icon: LineChart, hint: 'Số liệu tài liệu, chia sẻ, đồng bộ', visible: isExecutive },
     ];
     const list: Command[] = nav

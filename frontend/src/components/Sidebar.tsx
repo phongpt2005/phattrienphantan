@@ -7,6 +7,7 @@ import {
   FolderKanban,
   LineChart,
   LogOut,
+  Network,
   Search,
   UserCheck,
 } from 'lucide-react';
@@ -58,6 +59,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentTab, onTabChange, isCol
     {
       title: 'Quản trị',
       items: [
+        { tab: 'cluster', label: 'Theo dõi chuyển đổi', icon: Network, visible: isExecutive },
         { tab: 'system', label: 'Giám sát hệ thống', icon: Activity, visible: isExecutive },
         { tab: 'executive', label: 'Báo cáo điều hành', icon: LineChart, visible: isExecutive },
       ],

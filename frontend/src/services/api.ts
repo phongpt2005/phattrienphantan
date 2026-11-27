@@ -10,6 +10,7 @@ import {
   AccessRequestItem,
   SearchResponse,
   SystemHealth,
+  ClusterMap,
 } from '../types';
 
 const API_BASE = ''; // Relative via Gateway port 8000
@@ -276,6 +277,12 @@ export const searchApi = {
 /** Sức khỏe toàn hệ thống cho trang giám sát của Ban Giám đốc (dữ liệu thật từ Registry, Prometheus, Kafka Connect). */
   getSystemHealth: async (): Promise<SystemHealth> => {
     const res = await apiClient.get('/api/search/executive/system');
+    return res.data;
+  },
+
+  /** Bản đồ cụm: máy, ai đang giữ vai trò chính, diễn biến chuyển đổi và phục hồi. */
+  getClusterMap: async (): Promise<ClusterMap> => {
+    const res = await apiClient.get('/api/search/executive/cluster');
     return res.data;
   },
 

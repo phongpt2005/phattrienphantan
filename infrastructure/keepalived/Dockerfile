@@ -4,4 +4,6 @@ FROM alpine:3.20
 RUN apk add --no-cache keepalived haproxy curl iproute2
 COPY --chmod=755 infrastructure/keepalived/start-keepalived.sh /usr/local/bin/start-keepalived.sh
 COPY infrastructure/keepalived/gateway-lb.cfg /etc/haproxy/gateway-lb.cfg
+# Cụm 3 máy: giữ địa chỉ ảo trên mạng LAN (chạy với host network, entrypoint start-keepalived-lan.sh)
+COPY --chmod=755 infrastructure/keepalived/start-keepalived-lan.sh /usr/local/bin/start-keepalived-lan.sh
 ENTRYPOINT ["/usr/local/bin/start-keepalived.sh"]
