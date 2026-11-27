@@ -1,10 +1,11 @@
-import { useDepartments, deptName, deptTone, demoUsername } from '../context/DepartmentContext';
-import React, { useState, useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
+import { Check, Loader2, Send } from 'lucide-react';
+import { useDepartments, deptName } from '../context/DepartmentContext';
 import { useAuth } from '../context/AuthContext';
 import { searchApi } from '../services/api';
 import { SearchResultItem } from '../types';
 import { useToast } from '../context/ToastContext';
-import { Send, X, Check, Loader2, Clock, ShieldAlert, FileText, Building2 } from 'lucide-react';
+import { Button, Field, INPUT, Modal, SELECT, TEXTAREA } from './ui';
 
 interface RequestAccessModalProps {
   isOpen: boolean;
@@ -16,6 +17,7 @@ interface RequestAccessModalProps {
   onSuccess?: () => void;
 }
 
+/** Gửi đơn xin quyền xem/tải tài liệu của phòng khác. Trưởng phòng phòng đó sẽ quyết định. */
 export const RequestAccessModal: React.FC<RequestAccessModalProps> = ({
   isOpen,
   onClose,
@@ -76,8 +78,6 @@ export const RequestAccessModal: React.FC<RequestAccessModalProps> = ({
     }
   }, [isOpen, initialCentralDocId, initialDocTitle, initialTargetDept, currentDept, defaultTargetDept]);
 
-  if (!isOpen) return null;
-
   const handleSelectCatalogDoc = (e: React.ChangeEvent<HTMLSelectElement>) => {
     const id = Number(e.target.value);
     const item = catalog.find((c) => c.central_doc_id === id);
@@ -118,7 +118,7 @@ export const RequestAccessModal: React.FC<RequestAccessModalProps> = ({
       });
 
       toast.success(
-        `Đã gửi đơn xin cấp quyền [${requestedPermission === 'DOWNLOAD' ? 'Xem & Tải Về' : 'Chỉ Xem Online'}] tới Trưởng Phòng ${selectedTargetDept}!`,
+        `Đã gửi đơn xin cấp quyền [${requestedPermission === 'DOWNLOAD' ? 'xem và tải về' : 'chỉ xem trực tuyến'}] tới Trưởng phòng ${selectedTargetDept}`,
       );
       if (onSuccess) onSuccess();
       onClose();
@@ -133,157 +133,99 @@ export const RequestAccessModal: React.FC<RequestAccessModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-slate-900/50 flex items-center justify-center p-4">
-      <div className="bg-white rounded max-w-lg w-full p-5 shadow-xl border border-slate-200 space-y-4 animate-in fade-in duration-150">
-        {/* Header */}
-        <div className="flex items-center justify-between pb-3 border-b border-slate-100">
-          <div className="flex items-center gap-2">
-            <div className="w-8 h-8 rounded bg-blue-50 text-blue-700 flex items-center justify-center">
-              <Send className="w-4 h-4" />
-            </div>
-            <div>
-              <h3 className="font-bold text-sm text-slate-900">Gửi Đơn Xin Cấp Quyền Truy Cập</h3>
-              <p className="text-[11px] text-slate-500 font-mono">
-                Từ Phòng {currentDept} &rarr; Trình Trưởng Phòng {selectedTargetDept} phê chuẩn
-              </p>
-            </div>
-          </div>
-          <button
-            onClick={onClose}
-            className="p-1 text-slate-400 hover:text-slate-600 rounded hover:bg-slate-100 transition-colors"
-          >
-            <X className="w-4 h-4" />
-          </button>
+    <Modal
+      open={isOpen}
+      onClose={onClose}
+      title="Gửi đơn xin cấp quyền truy cập"
+      description={`Từ phòng ${deptName(currentDept) || currentDept} · chờ Trưởng phòng ${selectedTargetDept || '—'} phê duyệt`}
+      width="max-w-lg"
+    >
+      <form onSubmit={handleSubmit} className="space-y-4">
+        <div className="rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-micro leading-relaxed text-blue-900">
+          Bạn đang xin quyền tài liệu thuộc quyền quản lý của <strong>Phòng {selectedTargetDept || '—'}</strong>. Sau khi gửi, đơn được chuyển tới Trưởng phòng
+          {selectedTargetDept ? ` ${selectedTargetDept}` : ''} để duyệt trực tuyến.
         </div>
 
-        {/* Notice */}
-        <div className="p-3 bg-blue-50/60 border border-blue-200 rounded text-xs text-blue-800 flex items-start gap-2">
-          <ShieldAlert className="w-4 h-4 text-blue-600 shrink-0 mt-0.5" />
-          <span className="text-[11px] leading-relaxed">
-            Bạn đang yêu cầu quyền truy cập tài liệu thuộc thẩm quyền quản lý của{' '}
-            <strong>Phòng {selectedTargetDept}</strong>. Sau khi gửi, đơn sẽ được gửi đến Trưởng phòng {selectedTargetDept} để duyệt cấp quyền trực tuyến.
-          </span>
+        {errorMessage && <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-data text-red-800">{errorMessage}</div>}
+
+        <Field label="Tài liệu muốn xin xem">
+          {initialDocTitle ? (
+            <div className="rounded-md border border-slate-200 bg-slate-50 px-2.5 py-2">
+              <div className="text-data font-semibold text-slate-900 break-words">{initialDocTitle}</div>
+              <div className="mt-0.5 font-mono text-micro text-slate-500">
+                Phòng sở hữu: {selectedTargetDept} · Mã chỉ mục #CENTRAL-{selectedCentralDocId}
+              </div>
+            </div>
+          ) : isLoadingCatalog ? (
+            <div className="flex h-9 items-center justify-center gap-2 rounded-md border border-slate-200 bg-slate-50 text-data text-slate-500">
+              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+              Đang nạp danh mục tài liệu Phòng {selectedTargetDept}...
+            </div>
+          ) : catalog.length === 0 ? (
+            <div className="rounded-md border border-amber-200 bg-amber-50 px-2.5 py-2 text-micro text-amber-900">
+              Phòng {selectedTargetDept || '—'} hiện chưa có tài liệu nào được đồng bộ lên trung tâm.
+            </div>
+          ) : (
+            <select value={selectedCentralDocId} onChange={handleSelectCatalogDoc} className={`${SELECT} w-full`}>
+              {catalog.map((doc) => (
+                <option key={doc.central_doc_id} value={doc.central_doc_id}>
+                  [{doc.dept_code}] {doc.title} (#CENTRAL-{doc.central_doc_id})
+                </option>
+              ))}
+            </select>
+          )}
+        </Field>
+
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="Thời hạn xin xem" htmlFor="request-days">
+            <select
+              id="request-days"
+              value={requestedDays}
+              onChange={(e) => setRequestedDays(Number(e.target.value))}
+              className={`${SELECT} w-full font-mono`}
+            >
+              <option value={3}>3 ngày</option>
+              <option value={7}>7 ngày (mặc định)</option>
+              <option value={14}>14 ngày</option>
+              <option value={30}>30 ngày</option>
+              <option value={90}>90 ngày</option>
+            </select>
+          </Field>
+
+          <Field label="Mức quyền đề xuất" htmlFor="request-permission">
+            <select
+              id="request-permission"
+              value={requestedPermission}
+              onChange={(e) => setRequestedPermission(e.target.value as 'VIEW' | 'DOWNLOAD')}
+              className={`${SELECT} w-full`}
+            >
+              <option value="VIEW">Chỉ xem trực tuyến (DLP)</option>
+              <option value="DOWNLOAD">Xem và tải tệp về máy</option>
+            </select>
+          </Field>
         </div>
 
-        {/* Error */}
-        {errorMessage && (
-          <div className="p-2.5 bg-red-50 border border-red-200 rounded text-red-700 text-xs">
-            {errorMessage}
-          </div>
-        )}
+        <Field label="Lý do công tác và căn cứ" htmlFor="request-reason">
+          <textarea
+            id="request-reason"
+            rows={3}
+            required
+            value={reason}
+            onChange={(e) => setReason(e.target.value)}
+            placeholder="Nêu rõ mục đích nghiệp vụ, ví dụ: đối soát hóa đơn với phòng Kế toán, tổng hợp số liệu báo cáo quý"
+            className={TEXTAREA}
+          />
+        </Field>
 
-        {/* Form */}
-        <form onSubmit={handleSubmit} className="space-y-3.5 text-xs">
-          {/* Document Selection */}
-          <div>
-            <label className="block text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-1">
-              Tài liệu phòng bên cạnh yêu cầu xem *
-            </label>
-            {initialDocTitle ? (
-              <div className="p-2.5 bg-slate-50 rounded border border-slate-200 font-semibold text-slate-800 leading-snug">
-                {initialDocTitle}
-                <div className="text-[10px] text-slate-400 font-mono mt-0.5">
-                  Phòng sở hữu: {selectedTargetDept} | Mã chỉ mục: #CENTRAL-{selectedCentralDocId}
-                </div>
-              </div>
-            ) : isLoadingCatalog ? (
-              <div className="p-2.5 bg-slate-50 rounded border border-slate-200 text-slate-400 text-center flex items-center justify-center gap-2">
-                <Loader2 className="w-3.5 h-3.5 animate-spin" /> Đang nạp danh mục tài liệu Phòng {selectedTargetDept}...
-              </div>
-            ) : catalog.length === 0 ? (
-              <div className="p-2.5 bg-amber-50 rounded border border-amber-200 text-amber-800 text-[11px]">
-                Phòng {selectedTargetDept} hiện chưa có tài liệu nào được đồng bộ lên trung tâm.
-              </div>
-            ) : (
-              <select
-                value={selectedCentralDocId}
-                onChange={handleSelectCatalogDoc}
-                className="w-full px-2.5 py-2 rounded border border-slate-300 bg-white font-semibold text-slate-900"
-              >
-                {catalog.map((doc) => (
-                  <option key={doc.central_doc_id} value={doc.central_doc_id}>
-                    [{doc.dept_code}] {doc.title} (#CENTRAL-{doc.central_doc_id})
-                  </option>
-                ))}
-              </select>
-            )}
-          </div>
-
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="block text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-1">
-                Thời hạn xin xem
-              </label>
-              <select
-                value={requestedDays}
-                onChange={(e) => setRequestedDays(Number(e.target.value))}
-                className="w-full px-2.5 py-1.5 rounded border border-slate-300 bg-white font-medium text-slate-800 font-mono"
-              >
-                <option value={3}>3 ngày</option>
-                <option value={7}>7 ngày (Mặc định)</option>
-                <option value={14}>14 ngày</option>
-                <option value={30}>30 ngày</option>
-                <option value={90}>90 ngày</option>
-              </select>
-            </div>
-
-            <div>
-              <label className="block text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-1">
-                Mức quyền đề xuất
-              </label>
-              <select
-                value={requestedPermission}
-                onChange={(e) => setRequestedPermission(e.target.value as any)}
-                className="w-full px-2.5 py-1.5 rounded border border-slate-300 bg-white font-bold text-slate-800"
-              >
-                <option value="VIEW">Chỉ xem trực tuyến (DLP)</option>
-                <option value="DOWNLOAD">Xem và tải tệp về máy</option>
-              </select>
-            </div>
-          </div>
-
-          <div>
-            <label className="block text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-1">
-              Lý do công tác / Căn cứ xin cấp quyền *
-            </label>
-            <textarea
-              rows={3}
-              required
-              value={reason}
-              onChange={(e) => setReason(e.target.value)}
-              placeholder="Nêu rõ mục đích nghiệp vụ (Ví dụ: Đối soát hóa đơn với phòng Kế toán, tổng hợp số liệu báo cáo quý...)"
-              className="w-full px-2.5 py-1.5 rounded border border-slate-300 text-xs text-slate-900 focus:outline-none focus:ring-1 focus:ring-brand-500"
-            />
-          </div>
-
-          <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
-            <button
-              type="button"
-              onClick={onClose}
-              className="px-3 py-1.5 bg-white border border-slate-300 rounded text-slate-700 hover:bg-slate-50 font-medium"
-            >
-              Hủy bỏ
-            </button>
-            <button
-              type="submit"
-              disabled={isSubmitting || !selectedCentralDocId}
-              className="px-4 py-1.5 bg-slate-900 hover:bg-slate-800 text-white font-bold rounded flex items-center gap-1.5 disabled:opacity-50 transition-colors shadow-xs"
-            >
-              {isSubmitting ? (
-                <>
-                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                  Đang gửi đơn...
-                </>
-              ) : (
-                <>
-                  <Send className="w-3.5 h-3.5" />
-                  Gửi Yêu Cầu Xin Cấp Quyền
-                </>
-              )}
-            </button>
-          </div>
-        </form>
-      </div>
-    </div>
+        <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-200">
+          <Button type="button" onClick={onClose}>
+            Hủy bỏ
+          </Button>
+          <Button type="submit" variant="primary" disabled={isSubmitting || !selectedCentralDocId} icon={isSubmitting ? Loader2 : Send}>
+            {isSubmitting ? 'Đang gửi đơn...' : 'Gửi yêu cầu'}
+          </Button>
+        </div>
+      </form>
+    </Modal>
   );
 };

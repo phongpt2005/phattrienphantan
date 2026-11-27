@@ -117,9 +117,17 @@ export const documentApi = {
     return res.data;
   },
 
-  uploadDocument: async (dept: string, formData: FormData) => {
+  /**
+   * idempotencyKey: cùng khóa cho các lần gửi lại của CÙNG một lần tải lên (bấm hai lần, mạng chập chờn rồi gửi lại).
+   * Server trả lại đúng tài liệu đã tạo, không tạo tài liệu thứ hai (P3 N6).
+   */
+  uploadDocument: async (dept: string, formData: FormData, idempotencyKey?: string) => {
     const endpoint = `${deptBase(dept)}/documents`;
-    const res = await apiClient.post(endpoint, formData);
+    const res = await apiClient.post(
+      endpoint,
+      formData,
+      idempotencyKey ? { headers: { 'Idempotency-Key': idempotencyKey } } : undefined,
+    );
     return res.data;
   },
 

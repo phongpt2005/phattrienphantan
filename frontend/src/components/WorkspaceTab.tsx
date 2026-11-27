@@ -4,41 +4,110 @@ import { documentApi, searchApi } from '../services/api';
 import { DocumentItem, SharedDocumentItem, AccessRequestItem } from '../types';
 import { useToast } from '../context/ToastContext';
 import {
-  Folder,
-  FolderOpen,
-  FileText,
-  FileSpreadsheet,
+  ChevronRight,
+  Download,
+  ExternalLink,
+  File,
   FileCheck,
   FileCode,
-  File,
-  Plus,
-  RefreshCw,
-  Search,
+  FileSpreadsheet,
+  FileText,
+  Folder,
+  HardDrive,
+  Info,
   LayoutGrid,
   List,
-  Info,
-  Download,
-  Share2,
-  CheckCircle2,
-  Clock,
-  ShieldCheck,
-  HardDrive,
-  Users,
-  ChevronRight,
   Lock,
-  Copy,
-  Check,
-  ExternalLink,
-  X,
+  Plus,
+  RefreshCw,
+  Share2,
+  ShieldCheck,
   UserCheck,
+  Users,
+  X,
 } from 'lucide-react';
 import { UploadModal } from './UploadModal';
 import { ShareModal } from './ShareModal';
 import { DocumentDetailDrawer } from './DocumentDetailDrawer';
 import { SharedDocDetailDrawer } from './SharedDocDetailDrawer';
 import { RequestAccessModal } from './RequestAccessModal';
+import {
+  AccessPill,
+  Button,
+  DeptBadge,
+  DocStatusPill,
+  EmptyState,
+  IconButton,
+  LoadingRows,
+  PermissionPill,
+  RequestStatusPill,
+  ROW,
+  SELECT,
+  SearchField,
+  Segmented,
+  Td,
+  Th,
+  fmtDate,
+  fmtNumber,
+} from './ui';
 
 type DriveNavSection = 'MY_DRIVE' | 'SHARED_WITH_ME' | 'APPROVALS' | 'CONFIDENTIAL' | 'COMPANY';
+type StatusFilter = 'ALL' | 'DRAFT' | 'PUBLISHED';
+type TypeFilter = 'ALL' | 'PDF' | 'EXCEL' | 'DOC';
+type ViewMode = 'LIST' | 'GRID';
+
+const categoryOf = (d: DocumentItem) => d.category?.name || d.category?.categoryName || '';
+
+/** Biểu tượng theo loại tệp, đoán từ đuôi tên. */
+const fileIcon = (title: string, className: string) => {
+  const lower = title.toLowerCase();
+  if (lower.endsWith('.pdf')) return <FileText className={`${className} text-red-600`} />;
+  if (/\.(xlsx|xls|csv)$/.test(lower)) return <FileSpreadsheet className={`${className} text-emerald-700`} />;
+  if (/\.(docx|doc)$/.test(lower)) return <FileCheck className={`${className} text-blue-700`} />;
+  if (/\.(json|xml|sql)$/.test(lower)) return <FileCode className={`${className} text-amber-700`} />;
+  return <File className={`${className} text-slate-500`} />;
+};
+
+const NavRow: React.FC<{
+  active: boolean;
+  onClick: () => void;
+  icon: React.ComponentType<{ className?: string }>;
+  label: string;
+  count?: number;
+  countTone?: 'default' | 'warning';
+}> = ({ active, onClick, icon: Icon, label, count, countTone = 'default' }) => (
+  <button
+    type="button"
+    onClick={onClick}
+    aria-current={active ? 'true' : undefined}
+    className={`w-full h-8 flex items-center gap-2.5 px-2.5 rounded-md text-data text-left transition-colors ${
+      active ? 'bg-brand-50 text-brand-800 font-semibold' : 'text-slate-700 font-medium hover:bg-slate-100'
+    }`}
+  >
+    <Icon className={`w-4 h-4 shrink-0 ${active ? 'text-brand-600' : 'text-slate-400'}`} />
+    <span className="truncate flex-1">{label}</span>
+    {count !== undefined && (
+      <span
+        className={`inline-flex items-center h-4 px-1.5 rounded font-mono text-micro ${
+          countTone === 'warning'
+            ? 'bg-amber-100 text-amber-800 font-semibold'
+            : active
+            ? 'bg-white text-brand-700'
+            : 'bg-slate-100 text-slate-600'
+        }`}
+      >
+        {count}
+      </span>
+    )}
+  </button>
+);
+
+const MetaRow: React.FC<{ label: string; children: React.ReactNode }> = ({ label, children }) => (
+  <div className="flex items-center justify-between gap-3 px-3 h-9">
+    <dt className="text-micro font-semibold uppercase tracking-wider text-slate-500 whitespace-nowrap">{label}</dt>
+    <dd className="text-data text-slate-800 min-w-0 truncate text-right">{children}</dd>
+  </div>
+);
 
 export const WorkspaceTab: React.FC = () => {
   const { user } = useAuth();
@@ -46,13 +115,16 @@ export const WorkspaceTab: React.FC = () => {
   const currentDept = user?.departmentCode ?? '';
   const isManagerOrExec = user?.role === 'MANAGER' || !!user?.isExecutive;
 
-  // Navigation Drive State
+  // Điều hướng và bộ lọc
   const [activeSection, setActiveSection] = useState<DriveNavSection>('MY_DRIVE');
   const [selectedCategory, setSelectedCategory] = useState<string>('ALL');
-  const [viewMode, setViewMode] = useState<'LIST' | 'GRID'>('LIST');
+  const [viewMode, setViewMode] = useState<ViewMode>('LIST');
   const [isInspectorOpen, setIsInspectorOpen] = useState(true);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [typeFilter, setTypeFilter] = useState<TypeFilter>('ALL');
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>('ALL');
 
-  // Data States
+  // Dữ liệu
   const [documents, setDocuments] = useState<DocumentItem[]>([]);
   const [sharedDocs, setSharedDocs] = useState<SharedDocumentItem[]>([]);
   // Node phòng ban không trả lời khi gom "được chia sẻ với tôi" (kết quả chỉ một phần)
@@ -60,25 +132,14 @@ export const WorkspaceTab: React.FC = () => {
   const [accessRequests, setAccessRequests] = useState<AccessRequestItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
-  // Search & Filters
-  const [searchQuery, setSearchQuery] = useState('');
-  const [typeFilter, setTypeFilter] = useState<'ALL' | 'PDF' | 'EXCEL' | 'DOC' | 'OTHER'>('ALL');
-  const [statusFilter, setStatusFilter] = useState<'ALL' | 'DRAFT' | 'PUBLISHED'>('ALL');
-
-  // Selected File for Inspector
+  // Tệp đang chọn và các cửa sổ phụ
   const [selectedDocId, setSelectedDocId] = useState<number | null>(null);
   const [selectedSharedDoc, setSelectedSharedDoc] = useState<SharedDocumentItem | null>(null);
   const [drawerDocId, setDrawerDocId] = useState<number | null>(null);
-
-  // Modals
   const [isUploadOpen, setIsUploadOpen] = useState(false);
   const [isRequestAccessOpen, setIsRequestAccessOpen] = useState(false);
   const [shareDoc, setShareDoc] = useState<{ id: number; title: string } | null>(null);
 
-  // Copy SHA state
-  const [copiedSha, setCopiedSha] = useState(false);
-
-  // Fetch Data
   const fetchData = async () => {
     setIsLoading(true);
     try {
@@ -107,809 +168,627 @@ export const WorkspaceTab: React.FC = () => {
     }
   }, [user?.departmentCode, user?.token, user?.role]);
 
-  // Handle Download
   const handleDownload = (docId: number) => {
     documentApi.download(currentDept, docId).catch((e) => toast.error(e.message, 'Lỗi tải tệp'));
     toast.info(`Đang tải tệp hồ sơ #DOC-${docId}`);
   };
 
-  // Categories list
-  const categories = useMemo(() => {
-    const set = new Set<string>();
-    documents.forEach((d) => {
-      const c = d.category?.name || d.category?.categoryName;
-      if (c) set.add(c);
-    });
-    return Array.from(set);
-  }, [documents]);
+  /** Cấp quyền cho yêu cầu chia sẻ: (mã yêu cầu, người duyệt, quyền). Cùng cách gọi với màn Phê duyệt. */
+  const approve = async (requestId: number, permission: 'VIEW' | 'DOWNLOAD') => {
+    try {
+      await searchApi.approveAccessRequest(requestId, user?.username || '', permission);
+      toast.success(permission === 'DOWNLOAD' ? 'Đã cấp quyền TẢI VỀ cho văn bản' : 'Đã cấp quyền XEM cho văn bản');
+      fetchData();
+    } catch (e: any) {
+      toast.error(e?.response?.data?.message || e?.message || 'Không cấp được quyền', 'Lỗi phê duyệt');
+    }
+  };
 
-  // Filter documents based on active section and search
+  const categories = useMemo(() => Array.from(new Set(documents.map(categoryOf).filter(Boolean))), [documents]);
+  const pendingRequests = accessRequests.filter((r) => r.status === 'PENDING').length;
+
   const filteredDocs = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
     return documents.filter((d) => {
-      // 1. Section filter
+      // Phạm vi theo mục điều hướng
       if (activeSection === 'CONFIDENTIAL' && d.accessLevel !== 'CONFIDENTIAL') return false;
       if (activeSection === 'COMPANY' && d.accessLevel !== 'COMPANY') return false;
-
-      // 2. Category filter
-      if (selectedCategory !== 'ALL') {
-        const c = d.category?.name || d.category?.categoryName;
-        if (c !== selectedCategory) return false;
-      }
-
-      // 3. Status filter
+      // Thư mục nghiệp vụ
+      if (selectedCategory !== 'ALL' && categoryOf(d) !== selectedCategory) return false;
+      // Trạng thái
       if (statusFilter !== 'ALL' && d.status !== statusFilter) return false;
-
-      // 4. File Type filter
+      // Loại tệp theo đuôi tên
       if (typeFilter !== 'ALL') {
         const lower = d.title.toLowerCase();
         if (typeFilter === 'PDF' && !lower.endsWith('.pdf')) return false;
-        if (typeFilter === 'EXCEL' && !lower.match(/\.(xlsx|xls|csv)$/)) return false;
-        if (typeFilter === 'DOC' && !lower.match(/\.(docx|doc)$/)) return false;
+        if (typeFilter === 'EXCEL' && !/\.(xlsx|xls|csv)$/.test(lower)) return false;
+        if (typeFilter === 'DOC' && !/\.(docx|doc)$/.test(lower)) return false;
       }
-
-      // 5. Query
-      if (searchQuery.trim()) {
-        const q = searchQuery.toLowerCase();
-        const matchTitle = d.title.toLowerCase().includes(q);
-        const matchId = `doc-${d.docId}`.includes(q);
-        const matchCat = (d.category?.name || '').toLowerCase().includes(q);
-        const matchCreator = (d.creator?.fullName || d.creator?.username || '').toLowerCase().includes(q);
-        if (!matchTitle && !matchId && !matchCat && !matchCreator) return false;
+      // Từ khóa: tên, mã, thư mục, người tạo
+      if (q) {
+        const hit =
+          d.title.toLowerCase().includes(q) ||
+          `doc-${d.docId}`.includes(q) ||
+          categoryOf(d).toLowerCase().includes(q) ||
+          (d.creator?.fullName || d.creator?.username || '').toLowerCase().includes(q);
+        if (!hit) return false;
       }
-
       return true;
     });
   }, [documents, activeSection, selectedCategory, statusFilter, typeFilter, searchQuery]);
 
-  // Selected Doc Item
+  // Tệp hiển thị ở ngăn chi tiết: tệp đã chọn, nếu chưa chọn thì tệp đầu danh sách
   const activeSelectedDoc = useMemo(() => {
     if (!selectedDocId) return filteredDocs[0] || null;
     return documents.find((d) => d.docId === selectedDocId) || null;
   }, [selectedDocId, documents, filteredDocs]);
 
-  // Helper file icon with Google Drive colors
-  const getFileIcon = (title: string, className = 'w-4 h-4') => {
-    const lower = title.toLowerCase();
-    if (lower.endsWith('.pdf')) return <FileText className={`${className} text-red-500 fill-red-50/50`} />;
-    if (lower.endsWith('.xlsx') || lower.endsWith('.xls') || lower.endsWith('.csv'))
-      return <FileSpreadsheet className={`${className} text-emerald-600 fill-emerald-50/50`} />;
-    if (lower.endsWith('.docx') || lower.endsWith('.doc'))
-      return <FileCheck className={`${className} text-blue-600 fill-blue-50/50`} />;
-    if (lower.endsWith('.json') || lower.endsWith('.xml') || lower.endsWith('.sql'))
-      return <FileCode className={`${className} text-amber-500 fill-amber-50/50`} />;
-    return <File className={`${className} text-slate-500 fill-slate-50/50`} />;
+  const isDocSection = activeSection === 'MY_DRIVE' || activeSection === 'CONFIDENTIAL' || activeSection === 'COMPANY';
+  const showInspector = isInspectorOpen && isDocSection && !!activeSelectedDoc;
+
+  const selectSection = (section: DriveNavSection) => {
+    setActiveSection(section);
+    setSelectedCategory('ALL');
   };
 
-  const handleCopySha = (sha: string) => {
-    navigator.clipboard.writeText(sha);
-    setCopiedSha(true);
-    toast.success('Đã sao chép mã băm SHA-256');
-    setTimeout(() => setCopiedSha(false), 2000);
+  const selectCategory = (cat: string) => {
+    if (!isDocSection) setActiveSection('MY_DRIVE');
+    setSelectedCategory(cat);
   };
+
+  const stats: Array<{ label: string; value: number; tone: string }> = [
+    { label: 'Tài liệu của phòng', value: documents.length, tone: 'text-slate-900' },
+    { label: 'Đã ban hành', value: documents.filter((d) => d.status === 'PUBLISHED').length, tone: 'text-emerald-700' },
+    { label: 'Bản nháp', value: documents.filter((d) => d.status === 'DRAFT').length, tone: 'text-amber-700' },
+    { label: 'Được chia sẻ', value: sharedDocs.length, tone: 'text-slate-900' },
+  ];
+  if (isManagerOrExec) {
+    stats.push({ label: 'Yêu cầu chờ duyệt', value: pendingRequests, tone: pendingRequests > 0 ? 'text-amber-700' : 'text-slate-900' });
+  }
+
+  const sectionTitle: Record<DriveNavSection, string> = {
+    MY_DRIVE: currentDept ? `Kho phòng ${currentDept}` : 'Kho phòng ban',
+    SHARED_WITH_ME: 'Được chia sẻ đến phòng',
+    APPROVALS: 'Yêu cầu chia sẻ',
+    CONFIDENTIAL: 'Tài liệu mật (DLP)',
+    COMPANY: 'Toàn doanh nghiệp',
+  };
+
+  const renderDocActions = (doc: DocumentItem) => (
+    <div className="flex items-center justify-end gap-0.5" onClick={(e) => e.stopPropagation()}>
+      <IconButton size="sm" ghost title="Tải tệp về máy" aria-label="Tải tệp về máy" onClick={() => handleDownload(doc.docId)}>
+        <Download className="w-3.5 h-3.5" />
+      </IconButton>
+      {isManagerOrExec && (
+        <IconButton
+          size="sm"
+          ghost
+          title="Chia sẻ liên phòng"
+          aria-label="Chia sẻ liên phòng"
+          onClick={() => setShareDoc({ id: doc.docId, title: doc.title })}
+        >
+          <Share2 className="w-3.5 h-3.5" />
+        </IconButton>
+      )}
+      <IconButton size="sm" ghost title="Mở chi tiết đầy đủ" aria-label="Mở chi tiết đầy đủ" onClick={() => setDrawerDocId(doc.docId)}>
+        <ExternalLink className="w-3.5 h-3.5" />
+      </IconButton>
+    </div>
+  );
+
+  const renderDocTable = () => (
+    <table className="w-full table-fixed border-collapse">
+      <thead className="sticky top-0 z-10">
+        <tr>
+          <Th className="pl-4 w-24">Mã hồ sơ</Th>
+          <Th>Tên tài liệu</Th>
+          <Th className="hidden lg:table-cell w-36">Phân loại</Th>
+          <Th className="w-28">Trạng thái</Th>
+          <Th className="hidden 2xl:table-cell w-20">Phiên bản</Th>
+          <Th className="hidden md:table-cell w-24">Cập nhật</Th>
+          <Th className="pr-3 w-24 text-right">Thao tác</Th>
+        </tr>
+      </thead>
+      <tbody>
+        {filteredDocs.map((doc) => {
+          const isSelected = activeSelectedDoc?.docId === doc.docId;
+          return (
+            <tr
+              key={doc.docId}
+              onClick={() => setSelectedDocId(doc.docId)}
+              onDoubleClick={() => setDrawerDocId(doc.docId)}
+              className={`${ROW} cursor-pointer ${isSelected ? 'bg-brand-50/70' : ''}`}
+            >
+              <Td className={`pl-4 font-mono text-micro text-slate-500 whitespace-nowrap ${isSelected ? 'shadow-[inset_2px_0_0_0_#0064e0]' : ''}`}>
+                #DOC-{doc.docId}
+              </Td>
+              <Td className="w-full max-w-0">
+                <div className="flex items-center gap-2.5 min-w-0">
+                  {fileIcon(doc.title, 'w-4 h-4 shrink-0')}
+                  <span className="truncate font-medium text-slate-900" title={doc.title}>
+                    {doc.title}
+                  </span>
+                </div>
+              </Td>
+              <Td className="hidden lg:table-cell">
+                <AccessPill level={doc.accessLevel} />
+              </Td>
+              <Td>
+                <DocStatusPill status={doc.status} />
+              </Td>
+              <Td className="hidden 2xl:table-cell font-mono text-micro text-slate-600">v{doc.currentVersion}.0</Td>
+              <Td className="hidden md:table-cell font-mono text-micro text-slate-500 whitespace-nowrap">
+                {fmtDate(doc.updatedAt || doc.createdAt)}
+              </Td>
+              <Td className="pr-3">{renderDocActions(doc)}</Td>
+            </tr>
+          );
+        })}
+      </tbody>
+    </table>
+  );
+
+  const renderDocGrid = () => (
+    <div className="p-4 grid gap-3 grid-cols-2 md:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5">
+      {filteredDocs.map((doc) => {
+        const isSelected = activeSelectedDoc?.docId === doc.docId;
+        return (
+          <article
+            key={doc.docId}
+            onClick={() => setSelectedDocId(doc.docId)}
+            onDoubleClick={() => setDrawerDocId(doc.docId)}
+            className={`rounded-lg border bg-white p-3 cursor-pointer transition-colors flex flex-col gap-3 ${
+              isSelected ? 'border-brand-400 ring-2 ring-brand-500/15' : 'border-slate-200 hover:border-slate-300'
+            }`}
+          >
+            <div className="flex items-start justify-between gap-2">
+              <div className="w-9 h-9 rounded-md bg-slate-50 border border-slate-200 flex items-center justify-center shrink-0">
+                {fileIcon(doc.title, 'w-4 h-4')}
+              </div>
+              <DocStatusPill status={doc.status} />
+            </div>
+            <div className="min-w-0">
+              <div className="text-data font-semibold text-slate-900 truncate" title={doc.title}>
+                {doc.title}
+              </div>
+              <div className="mt-0.5 font-mono text-micro text-slate-500 truncate">
+                #DOC-{doc.docId} · v{doc.currentVersion}.0
+              </div>
+            </div>
+            <div className="mt-auto pt-2.5 border-t border-slate-100 flex items-center justify-between gap-2">
+              <AccessPill level={doc.accessLevel} />
+              {renderDocActions(doc)}
+            </div>
+          </article>
+        );
+      })}
+    </div>
+  );
+
+  const renderShared = () =>
+    sharedDocs.length === 0 ? (
+      <EmptyState
+        title={unavailableNodes.length > 0 ? 'Chưa lấy được văn bản chia sẻ nào' : 'Chưa có văn bản nào được chia sẻ đến phòng'}
+        hint={
+          unavailableNodes.length > 0
+            ? 'Một số phòng ban đang không phản hồi, nên danh sách có thể chưa đầy đủ.'
+            : 'Khi phòng khác cấp quyền xem hoặc tải tài liệu cho phòng bạn, tài liệu sẽ hiện ở đây.'
+        }
+      />
+    ) : (
+      <table className="w-full border-collapse">
+        <thead className="sticky top-0 z-10">
+          <tr>
+            <Th className="pl-4">Tên tài liệu</Th>
+            <Th>Phòng chia sẻ</Th>
+            <Th>Quyền hạn</Th>
+            <Th className="hidden md:table-cell">Hết hạn</Th>
+            <Th className="pr-4 text-right">Thao tác</Th>
+          </tr>
+        </thead>
+        <tbody>
+          {sharedDocs.map((item) => (
+            <tr key={item.share_id} onClick={() => setSelectedSharedDoc(item)} className={`${ROW} cursor-pointer`}>
+              <Td className="pl-4 w-full max-w-0">
+                <div className="flex items-center gap-2.5 min-w-0">
+                  {fileIcon(item.title || '', 'w-4 h-4 shrink-0')}
+                  <span className="truncate font-medium text-slate-900" title={item.title}>
+                    {item.title || `Văn bản #${item.source_doc_id}`}
+                  </span>
+                </div>
+              </Td>
+              <Td>
+                <DeptBadge code={item.shared_by_dept} />
+              </Td>
+              <Td>
+                <PermissionPill permission={item.permission} />
+              </Td>
+              <Td className="hidden md:table-cell font-mono text-micro text-slate-500 whitespace-nowrap">
+                {item.expires_at ? fmtDate(item.expires_at) : 'Không thời hạn'}
+              </Td>
+              <Td className="pr-4 text-right">
+                <Button
+                  size="sm"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setSelectedSharedDoc(item);
+                  }}
+                >
+                  Xem chi tiết
+                </Button>
+              </Td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    );
+
+  const renderApprovals = () =>
+    accessRequests.length === 0 ? (
+      <EmptyState
+        title="Không có yêu cầu cấp quyền nào"
+        hint="Khi phòng khác xin quyền tới tài liệu của phòng bạn, yêu cầu sẽ hiện ở đây."
+      />
+    ) : (
+      <table className="w-full border-collapse">
+        <thead className="sticky top-0 z-10">
+          <tr>
+            <Th className="pl-4 w-28">Mã hồ sơ</Th>
+            <Th>Văn bản</Th>
+            <Th>Phòng xin quyền</Th>
+            <Th className="hidden lg:table-cell">Lý do</Th>
+            <Th className="hidden md:table-cell">Quyền xin</Th>
+            <Th>Trạng thái</Th>
+            <Th className="pr-4 text-right">Thao tác</Th>
+          </tr>
+        </thead>
+        <tbody>
+          {accessRequests.map((req) => (
+            <tr key={req.request_id} className={ROW}>
+              <Td className="pl-4 font-mono text-micro text-slate-500 whitespace-nowrap">#DOC-{req.central_doc_id}</Td>
+              <Td className="w-full max-w-0">
+                <span className="block truncate font-medium text-slate-900" title={req.title}>
+                  {req.title || `Văn bản #${req.central_doc_id}`}
+                </span>
+              </Td>
+              <Td>
+                <div className="flex items-center gap-2 min-w-0">
+                  <DeptBadge code={req.requester_dept} />
+                  <span className="truncate text-slate-600">{req.requester_username}</span>
+                </div>
+              </Td>
+              <Td className="hidden lg:table-cell max-w-[220px]">
+                <span className="block truncate text-slate-600" title={req.reason}>
+                  {req.reason || '—'}
+                </span>
+              </Td>
+              <Td className="hidden md:table-cell">
+                {req.requested_permission ? <PermissionPill permission={req.requested_permission} /> : <span className="text-slate-400">—</span>}
+              </Td>
+              <Td>
+                <RequestStatusPill status={req.status} />
+              </Td>
+              <Td className="pr-4">
+                {req.status === 'PENDING' ? (
+                  <div className="flex items-center justify-end gap-2">
+                    <Button size="sm" onClick={() => void approve(req.request_id, 'VIEW')}>
+                      Cấp quyền xem
+                    </Button>
+                    <Button size="sm" variant="primary" onClick={() => void approve(req.request_id, 'DOWNLOAD')}>
+                      Cấp quyền tải
+                    </Button>
+                  </div>
+                ) : (
+                  <div className="text-right font-mono text-micro text-slate-500">{fmtDate(req.reviewed_at)}</div>
+                )}
+              </Td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    );
+
+  const countText =
+    activeSection === 'SHARED_WITH_ME'
+      ? `${sharedDocs.length} tài liệu`
+      : activeSection === 'APPROVALS'
+      ? `${accessRequests.length} yêu cầu`
+      : `${filteredDocs.length} tài liệu`;
 
   return (
-    <div className="flex flex-1 h-full w-full bg-white overflow-hidden select-none">
-      {/* ========================================================================= */}
-      {/* 1. LEFT PANE: GOOGLE DRIVE STYLE FOLDER TREE & NAVIGATION */}
-      {/* ========================================================================= */}
-      <div className="w-64 border-r border-slate-200/80 bg-slate-50/50 flex flex-col justify-between shrink-0">
-        <div className="p-3.5 space-y-4 overflow-y-auto">
-          {/* New Document Button (Google Drive '+ Mới' Pill) */}
-          <div className="pt-1">
-            <button
-              onClick={() => setIsUploadOpen(true)}
-              className="w-full flex items-center justify-center gap-2 h-9 px-3 bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold rounded border border-slate-900 transition-colors"
-            >
-              <Plus className="w-4 h-4" />
-              <span>Tải lên văn bản mới</span>
-            </button>
-          </div>
-
-          {/* Quick Drive Navigation Sections */}
-          <div className="space-y-0.5 text-xs font-medium">
-            <button
-              onClick={() => {
-                setActiveSection('MY_DRIVE');
-                setSelectedCategory('ALL');
-              }}
-              className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded transition-colors ${
-                activeSection === 'MY_DRIVE' && selectedCategory === 'ALL'
-                  ? 'bg-blue-100/70 text-blue-900 font-semibold'
-                  : 'text-slate-700 hover:bg-slate-100/80'
-              }`}
-            >
-              <div className="flex items-center gap-3 truncate">
-                <HardDrive className="w-4 h-4 text-blue-600 shrink-0" />
-                <span className="truncate">Kho Của Tôi ({currentDept})</span>
-              </div>
-              <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-slate-200/60 text-slate-600">
-                {documents.length}
-              </span>
-            </button>
-
-            <button
-              onClick={() => {
-                setActiveSection('SHARED_WITH_ME');
-                setSelectedCategory('ALL');
-              }}
-              className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded transition-colors ${
-                activeSection === 'SHARED_WITH_ME'
-                  ? 'bg-blue-100/70 text-blue-900 font-semibold'
-                  : 'text-slate-700 hover:bg-slate-100/80'
-              }`}
-            >
-              <div className="flex items-center gap-3 truncate">
-                <Users className="w-4 h-4 text-indigo-600 shrink-0" />
-                <span className="truncate">Được Chia Sẻ Với Tôi</span>
-              </div>
-              <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-indigo-100 text-indigo-700">
-                {sharedDocs.length}
-              </span>
-            </button>
-
-            {isManagerOrExec && (
-              <button
-                onClick={() => {
-                  setActiveSection('APPROVALS');
-                  setSelectedCategory('ALL');
-                }}
-                className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded transition-colors ${
-                  activeSection === 'APPROVALS'
-                    ? 'bg-blue-100/70 text-blue-900 font-semibold'
-                    : 'text-slate-700 hover:bg-slate-100/80'
-                }`}
-              >
-                <div className="flex items-center gap-3 truncate">
-                  <UserCheck className="w-4 h-4 text-emerald-600 shrink-0" />
-                  <span className="truncate">Yêu Cầu Chia Sẻ</span>
-                </div>
-                {accessRequests.filter((r) => r.status === 'PENDING').length > 0 && (
-                  <span className="text-[10px] font-bold px-1.5 py-0.2 rounded bg-amber-500 text-white">
-                    {accessRequests.filter((r) => r.status === 'PENDING').length}
-                  </span>
-                )}
-              </button>
-            )}
-
-            <button
-              onClick={() => {
-                setActiveSection('CONFIDENTIAL');
-                setSelectedCategory('ALL');
-              }}
-              className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded transition-colors ${
-                activeSection === 'CONFIDENTIAL'
-                  ? 'bg-blue-100/70 text-blue-900 font-semibold'
-                  : 'text-slate-700 hover:bg-slate-100/80'
-              }`}
-            >
-              <div className="flex items-center gap-3 truncate">
-                <Lock className="w-4 h-4 text-red-500 shrink-0" />
-                <span className="truncate">Tài Liệu Mật (DLP)</span>
-              </div>
-            </button>
-
-            <button
-              onClick={() => {
-                setActiveSection('COMPANY');
-                setSelectedCategory('ALL');
-              }}
-              className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded transition-colors ${
-                activeSection === 'COMPANY'
-                  ? 'bg-blue-100/70 text-blue-900 font-semibold'
-                  : 'text-slate-700 hover:bg-slate-100/80'
-              }`}
-            >
-              <div className="flex items-center gap-3 truncate">
-                <ShieldCheck className="w-4 h-4 text-amber-600 shrink-0" />
-                <span className="truncate">Toàn Doanh Nghiệp</span>
-              </div>
-            </button>
-          </div>
-
-          {/* Categories / Folders Header */}
-          <div className="pt-2">
-            <div className="px-2 py-1 text-[10px] font-bold uppercase tracking-wider text-slate-400">
-              Thư Mục Nghiệp Vụ
-            </div>
-            <div className="space-y-0.5 mt-1 text-xs">
-              <button
-                onClick={() => setSelectedCategory('ALL')}
-                className={`w-full flex items-center justify-between px-3 py-1.5 rounded transition-colors ${
-                  selectedCategory === 'ALL' && activeSection === 'MY_DRIVE'
-                    ? 'text-blue-700 font-semibold bg-white shadow-2xs'
-                    : 'text-slate-600 hover:bg-slate-100/80'
-                }`}
-              >
-                <div className="flex items-center gap-2 truncate">
-                  <Folder className="w-4 h-4 text-slate-400 shrink-0" />
-                  <span className="truncate">Tất cả thư mục</span>
-                </div>
-              </button>
-
-              {categories.map((cat) => (
-                <button
-                  key={cat}
-                  onClick={() => {
-                    setActiveSection('MY_DRIVE');
-                    setSelectedCategory(cat);
-                  }}
-                  className={`w-full flex items-center justify-between px-3 py-1.5 rounded transition-colors ${
-                    selectedCategory === cat
-                      ? 'text-blue-700 font-semibold bg-white shadow-2xs'
-                      : 'text-slate-600 hover:bg-slate-100/80'
-                  }`}
-                >
-                  <div className="flex items-center gap-2 truncate">
-                    <Folder className="w-4 h-4 text-amber-500 fill-amber-100/80 shrink-0" />
-                    <span className="truncate">{cat}</span>
-                  </div>
-                </button>
-              ))}
+    <div className="flex flex-1 min-h-0 w-full bg-white">
+      {/* Cột trái: phạm vi tài liệu, thư mục nghiệp vụ */}
+      <aside className="hidden xl:flex w-60 shrink-0 border-r border-slate-200 bg-white flex-col min-h-0">
+        <nav aria-label="Phạm vi tài liệu" className="flex-1 min-h-0 overflow-y-auto p-3 space-y-5">
+          <div>
+            <div className="px-2.5 pb-1.5 text-micro font-semibold uppercase tracking-wider text-slate-500">Kho tài liệu</div>
+            <div className="space-y-0.5">
+              <NavRow
+                active={activeSection === 'MY_DRIVE' && selectedCategory === 'ALL'}
+                onClick={() => selectSection('MY_DRIVE')}
+                icon={HardDrive}
+                label={currentDept ? `Phòng ${currentDept}` : 'Kho phòng ban'}
+                count={documents.length}
+              />
+              <NavRow
+                active={activeSection === 'SHARED_WITH_ME'}
+                onClick={() => selectSection('SHARED_WITH_ME')}
+                icon={Users}
+                label="Được chia sẻ đến phòng"
+                count={sharedDocs.length}
+              />
+              {isManagerOrExec && (
+                <NavRow
+                  active={activeSection === 'APPROVALS'}
+                  onClick={() => selectSection('APPROVALS')}
+                  icon={UserCheck}
+                  label="Yêu cầu chia sẻ"
+                  count={pendingRequests > 0 ? pendingRequests : undefined}
+                  countTone="warning"
+                />
+              )}
             </div>
           </div>
-        </div>
 
-        {/* Kho tệp riêng của phòng ban (không hiển thị dung lượng giả) */}
-        <div className="px-4 py-3 border-t border-slate-200 bg-white">
-          <div className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider text-slate-400">
-            <HardDrive className="w-3.5 h-3.5" /> Kho tệp riêng
-          </div>
-          <div className="text-[11px] text-slate-600 font-mono mt-1">Bucket: {currentDept.toLowerCase()}-documents</div>
-        </div>
-      </div>
-
-      {/* ========================================================================= */}
-      {/* 2. MAIN CENTER CANVAS: GOOGLE DRIVE / GITHUB FILE EXPLORER */}
-      {/* ========================================================================= */}
-      <div className="flex-1 flex flex-col min-w-0 bg-white">
-        {/* Top Explorer Action Bar */}
-        <div className="h-14 border-b border-slate-200/80 px-5 flex items-center justify-between gap-3 shrink-0 bg-white">
-          {/* Breadcrumb Path */}
-          <div className="flex items-center gap-2 text-xs text-slate-600 truncate">
-            <span className="font-medium text-slate-700">Kho Tài Liệu</span>
-            <ChevronRight className="w-3.5 h-3.5 text-slate-300" />
-            <span className="font-semibold text-blue-700">
-              {activeSection === 'MY_DRIVE'
-                ? `Phòng ${currentDept}`
-                : activeSection === 'SHARED_WITH_ME'
-                ? 'Được Chia Sẻ'
-                : activeSection === 'APPROVALS'
-                ? 'Yêu Cầu Chia Sẻ'
-                : activeSection === 'CONFIDENTIAL'
-                ? 'Tài Liệu Mật'
-                : 'Toàn Doanh Nghiệp'}
-            </span>
-            {selectedCategory !== 'ALL' && (
-              <>
-                <ChevronRight className="w-3.5 h-3.5 text-slate-300" />
-                <span className="text-slate-900 font-bold">{selectedCategory}</span>
-              </>
-            )}
-          </div>
-
-          {/* Right Toolbar Controls */}
-          <div className="flex items-center gap-2.5 shrink-0">
-            {/* Quick in-folder search with Google Drive rounded pill */}
-            <div className="relative">
-              <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-2.5" />
-              <input
-                type="text"
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Tìm kiếm trong thư mục..."
-                className="w-48 sm:w-60 pl-8 pr-3 py-1.5 text-xs text-slate-800 placeholder-slate-400 bg-slate-100/70 hover:bg-slate-100 border border-transparent focus:border-blue-400 focus:bg-white rounded transition-all focus:outline-hidden focus:ring-2 focus:ring-blue-500/10"
+          <div>
+            <div className="px-2.5 pb-1.5 text-micro font-semibold uppercase tracking-wider text-slate-500">Phạm vi</div>
+            <div className="space-y-0.5">
+              <NavRow
+                active={activeSection === 'CONFIDENTIAL'}
+                onClick={() => selectSection('CONFIDENTIAL')}
+                icon={Lock}
+                label="Tài liệu mật (DLP)"
+              />
+              <NavRow
+                active={activeSection === 'COMPANY'}
+                onClick={() => selectSection('COMPANY')}
+                icon={ShieldCheck}
+                label="Toàn doanh nghiệp"
               />
             </div>
+          </div>
 
-            {/* Filter Pills */}
-            <div className="hidden md:flex items-center gap-1 text-xs">
-              {(['ALL', 'PDF', 'EXCEL'] as const).map((t) => (
-                <button
-                  key={t}
-                  onClick={() => setTypeFilter(t)}
-                  className={`px-3 py-1 rounded text-xs font-medium transition-colors ${
-                    typeFilter === t
-                      ? 'bg-slate-900 text-white font-semibold'
-                      : 'text-slate-600 hover:bg-slate-100 border border-slate-200/80 bg-white'
-                  }`}
-                >
-                  {t === 'ALL' ? 'Tất cả' : t}
-                </button>
-              ))}
+          {categories.length > 0 && (
+            <div>
+              <div className="px-2.5 pb-1.5 text-micro font-semibold uppercase tracking-wider text-slate-500">Thư mục nghiệp vụ</div>
+              <div className="space-y-0.5">
+                <NavRow
+                  active={selectedCategory === 'ALL' && isDocSection}
+                  onClick={() => setSelectedCategory('ALL')}
+                  icon={Folder}
+                  label="Tất cả thư mục"
+                  count={documents.length}
+                />
+                {categories.map((cat) => (
+                  <NavRow
+                    key={cat}
+                    active={selectedCategory === cat && isDocSection}
+                    onClick={() => selectCategory(cat)}
+                    icon={Folder}
+                    label={cat}
+                    count={documents.filter((d) => categoryOf(d) === cat).length}
+                  />
+                ))}
+              </div>
             </div>
+          )}
+        </nav>
+        <div className="px-4 py-3 border-t border-slate-200 shrink-0">
+          <div className="text-micro font-semibold uppercase tracking-wider text-slate-500">Kho tệp riêng</div>
+          <div className="mt-1 font-mono text-micro text-slate-600 truncate">{currentDept.toLowerCase()}-documents</div>
+        </div>
+      </aside>
 
-            {/* View Mode Toggle (List vs Grid) */}
-            <div className="flex items-center border border-slate-200/80 rounded p-0.5 bg-slate-50 text-slate-500">
-              <button
-                onClick={() => setViewMode('LIST')}
-                title="Chế độ Danh sách (List View)"
-                className={`p-1.5 rounded transition-all ${
-                  viewMode === 'LIST' ? 'bg-white text-slate-900 shadow-2xs font-bold' : 'hover:text-slate-900'
-                }`}
-              >
-                <List className="w-3.5 h-3.5" />
-              </button>
-              <button
-                onClick={() => setViewMode('GRID')}
-                title="Chế độ Lưới thẻ (Grid View)"
-                className={`p-1.5 rounded transition-all ${
-                  viewMode === 'GRID' ? 'bg-white text-slate-900 shadow-2xs font-bold' : 'hover:text-slate-900'
-                }`}
-              >
-                <LayoutGrid className="w-3.5 h-3.5" />
-              </button>
-            </div>
-
-            {/* Reload button */}
-            <button
-              onClick={fetchData}
-              disabled={isLoading}
-              title="Làm mới danh sách"
-              className="p-1.5 rounded border border-slate-200/80 text-slate-600 hover:bg-slate-50 transition-colors"
+      {/* Khu vực giữa: thanh công cụ, số liệu, bảng */}
+      <section className="flex-1 min-w-0 flex flex-col">
+        {/* Phạm vi và thư mục khi màn hình hẹp (thay cho cột trái) */}
+        <div className="xl:hidden px-4 pt-3 flex items-center gap-2 overflow-x-auto">
+          <Segmented<DriveNavSection>
+            value={activeSection}
+            onChange={selectSection}
+            options={[
+              { value: 'MY_DRIVE', label: 'Kho phòng' },
+              { value: 'SHARED_WITH_ME', label: 'Được chia sẻ' },
+              ...(isManagerOrExec ? [{ value: 'APPROVALS' as DriveNavSection, label: 'Yêu cầu' }] : []),
+              { value: 'CONFIDENTIAL', label: 'Tài liệu mật' },
+              { value: 'COMPANY', label: 'Toàn doanh nghiệp' },
+            ]}
+          />
+          {categories.length > 0 && (
+            <select
+              aria-label="Thư mục nghiệp vụ"
+              value={selectedCategory}
+              onChange={(e) => selectCategory(e.target.value)}
+              className={`${SELECT} shrink-0`}
             >
-              <RefreshCw className={`w-3.5 h-3.5 ${isLoading ? 'animate-spin text-blue-600' : ''}`} />
-            </button>
+              <option value="ALL">Mọi thư mục</option>
+              {categories.map((c) => (
+                <option key={c} value={c}>
+                  {c}
+                </option>
+              ))}
+            </select>
+          )}
+        </div>
+        <div className="h-12 px-4 border-b border-slate-200 flex items-center justify-between gap-3 shrink-0">
+          <nav aria-label="Vị trí hiện tại" className="flex items-center gap-1.5 text-data min-w-0">
+            <span className="text-slate-500 truncate">Kho tài liệu</span>
+            <ChevronRight className="w-3.5 h-3.5 text-slate-300 shrink-0" />
+            <span className="font-semibold text-slate-900 truncate">{sectionTitle[activeSection]}</span>
+            {selectedCategory !== 'ALL' && (
+              <>
+                <ChevronRight className="w-3.5 h-3.5 text-slate-300 shrink-0" />
+                <span className="font-semibold text-slate-900 truncate">{selectedCategory}</span>
+              </>
+            )}
+          </nav>
+          <div className="flex items-center gap-2 shrink-0">
+            <SearchField
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Tên, mã hoặc người tạo"
+              wrapperClassName="w-44 xl:w-56"
+            />
+            <Button variant="primary" icon={Plus} onClick={() => setIsUploadOpen(true)}>
+              Tải lên
+            </Button>
+          </div>
+        </div>
 
-            {/* Toggle Inspector Pane Button */}
-            <button
-              onClick={() => setIsInspectorOpen(!isInspectorOpen)}
+        <div className={`grid grid-cols-2 ${isManagerOrExec ? 'md:grid-cols-5' : 'md:grid-cols-4'} border-b border-slate-200 bg-slate-50/60 shrink-0`}>
+          {stats.map((s, i) => (
+            <div key={s.label} className={`px-4 py-2.5 min-w-0 ${i > 0 ? 'border-l border-slate-200' : ''}`}>
+              <div className="text-micro font-semibold uppercase tracking-wider text-slate-500 truncate">{s.label}</div>
+              <div className={`mt-0.5 text-lg font-semibold tabular-nums leading-tight ${s.tone}`}>{fmtNumber(s.value)}</div>
+            </div>
+          ))}
+        </div>
+
+        <div className="h-11 px-4 border-b border-slate-200 flex items-center justify-between gap-3 shrink-0">
+          <div className="flex items-center gap-2 min-w-0">
+            <span className="text-data font-semibold text-slate-900 truncate">{sectionTitle[activeSection]}</span>
+            <span className="font-mono text-micro text-slate-500 whitespace-nowrap">{countText}</span>
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
+            {(activeSection === 'MY_DRIVE' || activeSection === 'CONFIDENTIAL' || activeSection === 'COMPANY') && (
+              <>
+                <select
+                  aria-label="Lọc theo trạng thái"
+                  value={statusFilter}
+                  onChange={(e) => setStatusFilter(e.target.value as StatusFilter)}
+                  className={`${SELECT} w-36`}
+                >
+                  <option value="ALL">Mọi trạng thái</option>
+                  <option value="PUBLISHED">Đã ban hành</option>
+                  <option value="DRAFT">Bản nháp</option>
+                </select>
+                <Segmented<TypeFilter>
+                  value={typeFilter}
+                  onChange={setTypeFilter}
+                  options={[
+                    { value: 'ALL', label: 'Mọi loại' },
+                    { value: 'PDF', label: 'PDF' },
+                    { value: 'EXCEL', label: 'Excel' },
+                    { value: 'DOC', label: 'Word' },
+                  ]}
+                />
+                <Segmented<ViewMode>
+                  value={viewMode}
+                  onChange={setViewMode}
+                  options={[
+                    { value: 'LIST', label: 'Bảng' },
+                    { value: 'GRID', label: 'Lưới' },
+                  ]}
+                />
+              </>
+            )}
+            <IconButton onClick={fetchData} disabled={isLoading} title="Làm mới danh sách" aria-label="Làm mới danh sách" size="sm">
+              <RefreshCw className={`w-3.5 h-3.5 ${isLoading ? 'animate-spin' : ''}`} />
+            </IconButton>
+            <IconButton
+              onClick={() => setIsInspectorOpen((v) => !v)}
+              active={isInspectorOpen}
               title={isInspectorOpen ? 'Ẩn bảng chi tiết tệp' : 'Xem chi tiết tệp'}
-              className={`p-1.5 rounded border transition-colors ${
-                isInspectorOpen
-                  ? 'bg-blue-50 border-blue-200 text-blue-700 font-bold'
-                  : 'border-slate-200/80 text-slate-600 hover:bg-slate-50'
-              }`}
+              aria-label={isInspectorOpen ? 'Ẩn bảng chi tiết tệp' : 'Xem chi tiết tệp'}
+              size="sm"
+              className="hidden 2xl:inline-flex"
             >
               <Info className="w-3.5 h-3.5" />
-            </button>
+            </IconButton>
           </div>
         </div>
 
-        {/* Content Explorer Scrollable Area */}
-        <div className="flex-1 overflow-y-auto">
-          {/* Section: Folders (Shown if on root of My Drive) */}
-          {activeSection === 'MY_DRIVE' && selectedCategory === 'ALL' && categories.length > 0 && !searchQuery && (
-            <div className="p-5 border-b border-slate-100">
-              <div className="text-[11px] font-bold uppercase tracking-wider text-slate-400 mb-3">
-                Thư Mục Nghiệp Vụ
-              </div>
-              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3.5">
-                {categories.map((cat) => {
-                  const count = documents.filter((d) => (d.category?.name || d.category?.categoryName) === cat).length;
-                  return (
-                    <div
-                      key={cat}
-                      onClick={() => setSelectedCategory(cat)}
-                      className="flex items-center gap-3 px-3.5 py-3 rounded bg-slate-50/70 hover:bg-slate-100/80 border border-slate-200/70 hover:border-slate-300 transition-all cursor-pointer shadow-2xs"
-                    >
-                      <Folder className="w-5 h-5 text-amber-500 fill-amber-100/80 shrink-0" />
-                      <div className="truncate min-w-0">
-                        <div className="font-semibold text-xs text-slate-800 truncate">{cat}</div>
-                        <div className="text-[10px] text-slate-400 font-mono">{count} tệp tin</div>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          )}
-
-          {/* Section: Files List / Grid View */}
-          {activeSection === 'SHARED_WITH_ME' ? (
-            /* SHARED WITH ME SECTION */
-            <div className="p-5">
-              <div className="text-[11px] font-bold uppercase tracking-wider text-slate-400 mb-3">
-                Văn Bản Được Chia Sẻ Từ Phòng Khác ({sharedDocs.length})
-              </div>
+        <div className="flex-1 min-h-0 overflow-y-auto">
+          {isLoading && documents.length === 0 && sharedDocs.length === 0 ? (
+            <LoadingRows />
+          ) : activeSection === 'SHARED_WITH_ME' ? (
+            <>
               {unavailableNodes.length > 0 && (
-                <div role="status" className="mb-3 px-3.5 py-2 rounded border border-amber-200 bg-amber-50 text-xs text-amber-800">
-                  ⚠️ Lưu ý: Không thể kết nối đến Node máy chủ của phòng ban: [{unavailableNodes.join(', ')}]. Một số tài liệu chia sẻ từ đơn vị này có thể tạm thời chưa hiển thị.
+                <div role="status" className="mx-4 mt-3 px-3 py-2 rounded-md border border-amber-200 bg-amber-50 text-data text-amber-800">
+                  Không kết nối được tới máy chủ của phòng ban: {unavailableNodes.join(', ')}. Một số tài liệu chia sẻ từ các phòng này có thể tạm thời chưa hiển thị.
                 </div>
               )}
-              {sharedDocs.length === 0 ? (
-                <div className="py-24 text-center text-slate-400 text-xs">
-                  {unavailableNodes.length > 0
-                    ? 'Chưa lấy được văn bản chia sẻ nào: một số phòng ban đang không phản hồi.'
-                    : 'Hiện chưa có văn bản nào được chia sẻ đến phòng ban của bạn.'}
-                </div>
-              ) : (
-                <table className="w-full text-left border-collapse text-xs">
-                  <thead>
-                    <tr className="border-b border-slate-200/80 text-[11px] font-semibold text-slate-400 uppercase tracking-wider">
-                      <th className="py-2.5 px-4">Tên tài liệu</th>
-                      <th className="py-2.5 px-4">Phòng ban cấp</th>
-                      <th className="py-2.5 px-4">Quyền hạn</th>
-                      <th className="py-2.5 px-4">Thời hạn</th>
-                      <th className="py-2.5 px-4 text-right">Thao tác</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100 font-mono">
-                    {sharedDocs.map((item) => (
-                      <tr
-                        key={item.share_id}
-                        onClick={() => setSelectedSharedDoc(item)}
-                        className="hover:bg-blue-50/40 cursor-pointer transition-colors"
-                      >
-                        <td className="py-3 px-4 font-sans font-medium text-slate-800 flex items-center gap-2.5">
-                          {getFileIcon(item.title || '')}
-                          <span className="truncate">{item.title || `Văn bản #${item.source_doc_id}`}</span>
-                        </td>
-                        <td className="py-3 px-4 text-slate-600">
-                          <span className="px-2 py-0.5 rounded bg-slate-100 font-bold border border-slate-200/80 text-[11px]">
-                            Phòng {item.shared_by_dept}
-                          </span>
-                        </td>
-                        <td className="py-3 px-4">
-                          {item.permission === 'DOWNLOAD' ? (
-                            <span className="text-[10px] font-semibold px-2 py-0.5 rounded bg-emerald-50 text-emerald-800 border border-emerald-200/80">
-                              ĐƯỢC TẢI VỀ
-                            </span>
-                          ) : (
-                            <span className="text-[10px] font-semibold px-2 py-0.5 rounded bg-blue-50 text-blue-800 border border-blue-200/80">
-                              CHỈ XEM (DLP)
-                            </span>
-                          )}
-                        </td>
-                        <td className="py-3 px-4 text-slate-500 text-[11px]">
-                          {item.expires_at ? new Date(item.expires_at).toLocaleDateString('vi-VN') : 'Vĩnh viễn'}
-                        </td>
-                        <td className="py-3 px-4 text-right">
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setSelectedSharedDoc(item);
-                            }}
-                            className="px-2.5 py-1 text-[11px] font-medium text-blue-700 bg-blue-50 hover:bg-blue-100 rounded transition-colors"
-                          >
-                            Xem chi tiết
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              )}
-            </div>
+              {renderShared()}
+            </>
           ) : activeSection === 'APPROVALS' ? (
-            /* APPROVALS SECTION */
-            <div className="p-5 space-y-3">
-              <div className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
-                Yêu Cầu Cấp Quyền Truy Cập Văn Bản Đang Chờ Duyệt ({accessRequests.length})
-              </div>
-              {accessRequests.length === 0 ? (
-                <div className="py-24 text-center text-slate-400 text-xs">
-                  Không có yêu cầu cấp quyền nào đang chờ xử lý.
-                </div>
-              ) : (
-                <div className="space-y-2.5">
-                  {accessRequests.map((req) => (
-                    <div
-                      key={req.request_id}
-                      className="p-4 rounded border border-slate-200/80 hover:border-slate-300 bg-white shadow-2xs flex items-center justify-between gap-4"
-                    >
-                      <div className="space-y-1 text-xs">
-                        <div className="flex items-center gap-2">
-                          <span className="font-semibold text-slate-900">
-                            Văn bản #{req.central_doc_id}
-                          </span>
-                          <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-amber-50 text-amber-800 border border-amber-200/80 font-bold">
-                            {req.status}
-                          </span>
-                        </div>
-                        <div className="text-slate-500 text-[11px]">
-                          Phòng xin quyền: <strong className="text-slate-700">{req.requester_dept}</strong> ({req.requester_username}) - Lý do: {req.reason}
-                        </div>
-                      </div>
-
-                      {req.status === 'PENDING' && (
-                        <div className="flex items-center gap-2">
-                          <button
-                            onClick={async () => {
-                              await searchApi.approveAccessRequest(req.request_id, 'VIEW');
-                              toast.success('Đã cấp quyền XEM cho văn bản');
-                              fetchData();
-                            }}
-                            className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded text-xs font-semibold transition-colors shadow-2xs"
-                          >
-                            Cấp Quyền Xem
-                          </button>
-                          <button
-                            onClick={async () => {
-                              await searchApi.approveAccessRequest(req.request_id, 'DOWNLOAD');
-                              toast.success('Đã cấp quyền TẢI VỀ cho văn bản');
-                              fetchData();
-                            }}
-                            className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded text-xs font-semibold transition-colors shadow-2xs"
-                          >
-                            Cấp Quyền Tải
-                          </button>
-                        </div>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
+            renderApprovals()
+          ) : filteredDocs.length === 0 ? (
+            <EmptyState
+              title={searchQuery ? `Không có tài liệu khớp "${searchQuery}"` : 'Chưa có tài liệu trong mục này'}
+              hint={searchQuery ? 'Thử từ khóa khác hoặc bỏ bớt bộ lọc.' : 'Tải lên tài liệu mới bằng nút Tải lên ở trên.'}
+            />
+          ) : viewMode === 'LIST' ? (
+            renderDocTable()
           ) : (
-            /* MY DRIVE REGULAR FILES */
-            <div className="p-5">
-              <div className="flex items-center justify-between text-[11px] font-bold uppercase tracking-wider text-slate-400 mb-3">
-                <span>Tất Cả Tệp ({filteredDocs.length})</span>
-                <span className="font-mono text-[10px] text-slate-400">Nhấp để xem chi tiết bên phải</span>
-              </div>
-
-              {filteredDocs.length === 0 ? (
-                <div className="py-24 text-center text-slate-400 text-xs">
-                  {searchQuery
-                    ? `Không tìm thấy tài liệu phù hợp với "${searchQuery}".`
-                    : 'Thư mục hiện tại chưa có tệp tin nào.'}
-                </div>
-              ) : viewMode === 'LIST' ? (
-                /* GOOGLE DRIVE CLEAN LIST VIEW */
-                <table className="w-full text-left border-collapse text-xs">
-                  <thead>
-                    <tr className="border-b border-slate-200/80 text-[11px] font-semibold text-slate-400 uppercase tracking-wider">
-                      <th className="py-2.5 px-4">Tên tệp tin</th>
-                      <th className="py-2.5 px-4 hidden sm:table-cell">Chủ sở hữu</th>
-                      <th className="py-2.5 px-4 hidden md:table-cell">Sửa đổi</th>
-                      <th className="py-2.5 px-4">Trạng thái</th>
-                      <th className="py-2.5 px-4 text-right">Thao tác</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100">
-                    {filteredDocs.map((doc) => {
-                      const isSelected = selectedDocId === doc.docId;
-                      return (
-                        <tr
-                          key={doc.docId}
-                          onClick={() => setSelectedDocId(doc.docId)}
-                          onDoubleClick={() => setDrawerDocId(doc.docId)}
-                          className={`cursor-pointer transition-colors ${
-                            isSelected
-                              ? 'bg-blue-50/80 text-blue-900 border-l-3 border-l-blue-600'
-                              : 'hover:bg-slate-50/80'
-                          }`}
-                        >
-                          {/* File Name & Icon */}
-                          <td className="py-3 px-4">
-                            <div className="flex items-center gap-3 min-w-0">
-                              {getFileIcon(doc.title, 'w-4 h-4 shrink-0')}
-                              <div className="truncate">
-                                <span className="font-medium text-slate-900 block truncate">
-                                  {doc.title}
-                                </span>
-                                <span className="text-[10px] text-slate-400 font-mono block">
-                                  #DOC-{doc.docId} - v{doc.currentVersion}.0
-                                </span>
-                              </div>
-                            </div>
-                          </td>
-
-                          {/* Owner */}
-                          <td className="py-3 px-4 hidden sm:table-cell text-slate-600">
-                            <div className="flex items-center gap-2 truncate">
-                              <div className="w-5 h-5 rounded-full bg-slate-100 text-slate-700 flex items-center justify-center text-[10px] font-bold shrink-0">
-                                {(doc.creator?.username || 'U').slice(0, 1).toUpperCase()}
-                              </div>
-                              <span className="truncate">{doc.creator?.fullName || doc.creator?.username || 'Hệ thống'}</span>
-                            </div>
-                          </td>
-
-                          {/* Last Modified */}
-                          <td className="py-3 px-4 hidden md:table-cell text-slate-500 font-mono text-[11px]">
-                            {new Date(doc.updatedAt || doc.createdAt).toLocaleDateString('vi-VN')}
-                          </td>
-
-                          {/* Status Badge */}
-                          <td className="py-3 px-4">
-                            {doc.status === 'PUBLISHED' ? (
-                              <span className="inline-flex items-center gap-1.5 text-[10px] font-semibold px-2 py-0.5 rounded bg-emerald-50 text-emerald-800 border border-emerald-200/80">
-                                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span> ĐÃ BAN HÀNH
-                              </span>
-                            ) : (
-                              <span className="inline-flex items-center gap-1.5 text-[10px] font-semibold px-2 py-0.5 rounded bg-amber-50 text-amber-800 border border-amber-200/80">
-                                <span className="w-1.5 h-1.5 rounded-full bg-amber-500"></span> BẢN NHÁP
-                              </span>
-                            )}
-                          </td>
-
-                          {/* Quick Actions */}
-                          <td className="py-3 px-4 text-right">
-                            <div className="flex items-center justify-end gap-1" onClick={(e) => e.stopPropagation()}>
-                              <button
-                                onClick={() => handleDownload(doc.docId)}
-                                title="Tải xuống tệp"
-                                className="p-1.5 rounded text-slate-400 hover:text-slate-800 hover:bg-slate-100 transition-colors"
-                              >
-                                <Download className="w-3.5 h-3.5" />
-                              </button>
-                              {isManagerOrExec && (
-                                <button
-                                  onClick={() => setShareDoc({ id: doc.docId, title: doc.title })}
-                                  title="Chia sẻ liên phòng"
-                                  className="p-1.5 rounded text-slate-400 hover:text-indigo-600 hover:bg-slate-100 transition-colors"
-                                >
-                                  <Share2 className="w-3.5 h-3.5" />
-                                </button>
-                              )}
-                              <button
-                                onClick={() => setDrawerDocId(doc.docId)}
-                                title="Mở chi tiết đầy đủ"
-                                className="p-1.5 rounded text-slate-400 hover:text-blue-600 hover:bg-slate-100 transition-colors"
-                              >
-                                <ExternalLink className="w-3.5 h-3.5" />
-                              </button>
-                            </div>
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              ) : (
-                /* GOOGLE DRIVE CLEAN GRID VIEW */
-                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-                  {filteredDocs.map((doc) => {
-                    const isSelected = selectedDocId === doc.docId;
-                    return (
-                      <div
-                        key={doc.docId}
-                        onClick={() => setSelectedDocId(doc.docId)}
-                        onDoubleClick={() => setDrawerDocId(doc.docId)}
-                        className={`p-3.5 rounded border transition-all cursor-pointer flex flex-col justify-between card-3d-hover ${
-                          isSelected
-                            ? 'bg-blue-50/70 border-blue-400 shadow-sm'
-                            : 'bg-white border-slate-200/80 hover:border-slate-300 hover:shadow-2xs'
-                        }`}
-                      >
-                        <div>
-                          {/* File Preview Header Box with Realistic Paper Aspect */}
-                          <div className="h-28 bg-slate-50 border border-slate-100 rounded flex flex-col items-center justify-center p-3 mb-3 relative overflow-hidden">
-                            {getFileIcon(doc.title, 'w-10 h-10')}
-                            <span className="text-[10px] text-slate-400 font-mono mt-1.5 font-semibold">
-                              {doc.title.split('.').pop()?.toUpperCase() || 'FILE'}
-                            </span>
-                            {/* Watermark subtle effect */}
-                            <div className="absolute inset-0 opacity-5 pointer-events-none flex items-center justify-center text-[10px] font-mono rotate-[-20deg]">
-                              CONFIDENTIAL
-                            </div>
-                          </div>
-
-                          <h3 className="font-medium text-xs text-slate-900 truncate" title={doc.title}>
-                            {doc.title}
-                          </h3>
-                          <div className="text-[10px] text-slate-400 font-mono mt-0.5">
-                            #DOC-{doc.docId} - v{doc.currentVersion}.0
-                          </div>
-                        </div>
-
-                        <div className="mt-3 pt-2.5 border-t border-slate-100 flex items-center justify-between text-[11px] text-slate-500">
-                          <span>{new Date(doc.createdAt).toLocaleDateString('vi-VN')}</span>
-                          <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
-                            <button
-                              onClick={() => handleDownload(doc.docId)}
-                              className="p-1 hover:text-slate-800"
-                              title="Tải về"
-                            >
-                              <Download className="w-3.5 h-3.5" />
-                            </button>
-                            <button
-                              onClick={() => setDrawerDocId(doc.docId)}
-                              className="p-1 hover:text-blue-700"
-                              title="Chi tiết"
-                            >
-                              <Info className="w-3.5 h-3.5" />
-                            </button>
-                          </div>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
+            renderDocGrid()
           )}
         </div>
-      </div>
+      </section>
 
-      {/* ========================================================================= */}
-      {/* 3. RIGHT INSPECTOR PANEL: GOOGLE DRIVE FILE DETAILS & AUDIT */}
-      {/* ========================================================================= */}
-      {isInspectorOpen && activeSelectedDoc && (
-        <div className="w-76 border-l border-slate-200/80 bg-white flex flex-col justify-between shrink-0 overflow-y-auto animate-slide-left">
-          <div className="p-4 space-y-4">
-            {/* Header */}
-            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-              <span className="text-xs font-bold text-slate-900">Chi Tiết Tệp Tin</span>
-              <button
-                onClick={() => setIsInspectorOpen(false)}
-                className="p-1 rounded text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            {/* Thumbnail Preview Area with Paper Mockup */}
-            <div className="p-5 bg-slate-50/60 rounded border border-slate-100 text-center space-y-2 relative overflow-hidden">
-              <div className="w-14 h-14 rounded bg-white border border-slate-200/80 shadow-2xs flex items-center justify-center mx-auto">
-                {getFileIcon(activeSelectedDoc.title, 'w-7 h-7')}
-              </div>
-              <h4 className="font-semibold text-xs text-slate-900 truncate" title={activeSelectedDoc.title}>
-                {activeSelectedDoc.title}
-              </h4>
-              <div className="text-[10px] text-slate-400 font-mono">
-                Mã: #DOC-{activeSelectedDoc.docId} - Bản: v{activeSelectedDoc.currentVersion}.0
-              </div>
-            </div>
-
-            {/* Metadata Properties List (Google Drive Style) */}
-            <div className="space-y-2.5 text-xs">
-              <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
-                Thuộc Tính Tài Liệu
-              </div>
-
-              <div className="p-3 bg-slate-50/50 rounded border border-slate-100 space-y-2.5">
-                <div className="flex items-center justify-between text-slate-600">
-                  <span className="text-slate-400">Trạng thái:</span>
-                  <span className="font-medium text-slate-800">
-                    {activeSelectedDoc.status === 'PUBLISHED' ? 'Đã Ban Hành' : 'Bản Thảo (Chưa duyệt)'}
-                  </span>
-                </div>
-
-                <div className="flex items-center justify-between text-slate-600">
-                  <span className="text-slate-400">Phân quyền:</span>
-                  <span className="font-medium text-slate-800">
-                    {activeSelectedDoc.accessLevel === 'COMPANY'
-                      ? 'Toàn Công Ty'
-                      : activeSelectedDoc.accessLevel === 'CONFIDENTIAL'
-                      ? 'Bảo Mật Cao'
-                      : 'Nội Bộ Phòng Ban'}
-                  </span>
-                </div>
-
-                <div className="flex items-center justify-between text-slate-600">
-                  <span className="text-slate-400">Người tạo:</span>
-                  <span className="font-medium text-slate-800">
-                    {activeSelectedDoc.creator?.fullName || activeSelectedDoc.creator?.username || 'Hệ thống'}
-                  </span>
-                </div>
-
-                <div className="flex items-center justify-between text-slate-600">
-                  <span className="text-slate-400">Ngày tạo:</span>
-                  <span className="font-mono text-slate-800 text-[11px]">
-                    {new Date(activeSelectedDoc.createdAt).toLocaleDateString('vi-VN')}
-                  </span>
-                </div>
-
-                <div className="flex items-center justify-between text-slate-600">
-                  <span className="text-slate-400">Lưu trữ:</span>
-                  <span className="font-mono text-slate-800 text-[11px]">MinIO S3 ({currentDept.toLowerCase()})</span>
-                </div>
-              </div>
-            </div>
+      {/* Cột phải: chi tiết tệp đang chọn */}
+      {showInspector && activeSelectedDoc && (
+        <aside className="hidden 2xl:flex w-72 shrink-0 border-l border-slate-200 bg-white flex-col min-h-0">
+          <div className="h-11 px-4 border-b border-slate-200 flex items-center justify-between shrink-0">
+            <span className="text-data font-semibold text-slate-900">Chi tiết tệp</span>
+            <IconButton size="sm" ghost title="Ẩn bảng chi tiết" aria-label="Ẩn bảng chi tiết" onClick={() => setIsInspectorOpen(false)}>
+              <X className="w-3.5 h-3.5" />
+            </IconButton>
           </div>
 
-          {/* Quick Action Footer in Inspector */}
-          <div className="p-4 border-t border-slate-100 bg-white space-y-2">
-            <button
-              onClick={() => handleDownload(activeSelectedDoc.docId)}
-              className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded text-xs font-semibold transition-all shadow-xs"
-            >
-              <Download className="w-3.5 h-3.5" /> Tải Tệp Về Máy
-            </button>
-            <button
-              onClick={() => setDrawerDocId(activeSelectedDoc.docId)}
-              className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded text-xs font-medium transition-colors"
-            >
-              <ExternalLink className="w-3.5 h-3.5" /> Xem Toàn Diện (Drawer)
-            </button>
+          <div className="flex-1 min-h-0 overflow-y-auto p-4 space-y-4">
+            <div className="flex items-start gap-3">
+              <div className="w-10 h-10 rounded-md bg-slate-50 border border-slate-200 flex items-center justify-center shrink-0">
+                {fileIcon(activeSelectedDoc.title, 'w-5 h-5')}
+              </div>
+              <div className="min-w-0">
+                <div className="text-data font-semibold text-slate-900 break-words">{activeSelectedDoc.title}</div>
+                <div className="mt-0.5 font-mono text-micro text-slate-500">
+                  #DOC-{activeSelectedDoc.docId} · v{activeSelectedDoc.currentVersion}.0
+                </div>
+              </div>
+            </div>
+
+            <div className="flex flex-wrap gap-1.5">
+              <DocStatusPill status={activeSelectedDoc.status} />
+              <AccessPill level={activeSelectedDoc.accessLevel} />
+            </div>
+
+            <dl className="divide-y divide-slate-100 rounded-md border border-slate-200">
+              <MetaRow label="Người tạo">{activeSelectedDoc.creator?.fullName || activeSelectedDoc.creator?.username || 'Hệ thống'}</MetaRow>
+              <MetaRow label="Phiên bản">
+                <span className="font-mono">v{activeSelectedDoc.currentVersion}.0</span>
+              </MetaRow>
+              <MetaRow label="Ngày tạo">
+                <span className="font-mono">{fmtDate(activeSelectedDoc.createdAt)}</span>
+              </MetaRow>
+              <MetaRow label="Cập nhật">
+                <span className="font-mono">{fmtDate(activeSelectedDoc.updatedAt || activeSelectedDoc.createdAt)}</span>
+              </MetaRow>
+              <MetaRow label="Lưu trữ">
+                <span className="font-mono">MinIO · {currentDept.toLowerCase()}</span>
+              </MetaRow>
+            </dl>
           </div>
-        </div>
+
+          <div className="p-4 border-t border-slate-200 bg-slate-50/60 space-y-2 shrink-0">
+            <Button variant="primary" icon={Download} className="w-full" onClick={() => handleDownload(activeSelectedDoc.docId)}>
+              Tải tệp về máy
+            </Button>
+            <div className={`grid gap-2 ${isManagerOrExec ? 'grid-cols-2' : 'grid-cols-1'}`}>
+              <Button icon={ExternalLink} onClick={() => setDrawerDocId(activeSelectedDoc.docId)}>
+                Chi tiết đầy đủ
+              </Button>
+              {isManagerOrExec && (
+                <Button icon={Share2} onClick={() => setShareDoc({ id: activeSelectedDoc.docId, title: activeSelectedDoc.title })}>
+                  Chia sẻ
+                </Button>
+              )}
+            </div>
+          </div>
+        </aside>
       )}
 
-      {/* ========================================================================= */}
-      {/* 4. MODALS & SLIDE-OVER DRAWERS */}
-      {/* ========================================================================= */}
+      {/* Cửa sổ phụ: giữ nguyên hành vi như trước */}
       {isUploadOpen && (
         <UploadModal
           isOpen={isUploadOpen}
@@ -947,11 +826,7 @@ export const WorkspaceTab: React.FC = () => {
       )}
 
       {selectedSharedDoc && (
-        <SharedDocDetailDrawer
-          isOpen={!!selectedSharedDoc}
-          onClose={() => setSelectedSharedDoc(null)}
-          sharedDoc={selectedSharedDoc}
-        />
+        <SharedDocDetailDrawer isOpen={!!selectedSharedDoc} onClose={() => setSelectedSharedDoc(null)} sharedDoc={selectedSharedDoc} />
       )}
 
       {isRequestAccessOpen && (

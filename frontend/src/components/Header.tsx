@@ -4,6 +4,7 @@ import { useAuth } from '../context/AuthContext';
 import { deptName } from '../context/DepartmentContext';
 import { AppTab } from '../types';
 import { NotificationBell } from './NotificationBell';
+import { DeptBadge, Kbd } from './ui';
 
 export const TAB_LABELS: Record<AppTab, string> = {
   workspace: 'Kho hồ sơ phòng ban',
@@ -25,6 +26,7 @@ interface HeaderProps {
   onOpenCommand: () => void;
 }
 
+/** Thanh đầu: vị trí hiện tại, tìm nhanh (Ctrl K), phòng và vai trò, thông báo. */
 export const Header: React.FC<HeaderProps> = ({ currentTab, onToggleSidebar, onOpenCommand }) => {
   const { user } = useAuth();
   if (!user) return null;
@@ -32,7 +34,7 @@ export const Header: React.FC<HeaderProps> = ({ currentTab, onToggleSidebar, onO
   const isExecutive = user.role === 'EXECUTIVE' || !!user.isExecutive;
 
   return (
-    <header className="h-12 bg-white border-b border-slate-200 px-4 flex items-center justify-between shrink-0 select-none">
+    <header className="h-12 bg-white border-b border-slate-200 px-4 flex items-center justify-between gap-3 shrink-0 select-none">
       <div className="flex items-center gap-2 min-w-0">
         <button
           onClick={onToggleSidebar}
@@ -41,27 +43,28 @@ export const Header: React.FC<HeaderProps> = ({ currentTab, onToggleSidebar, onO
         >
           <Menu className="w-4 h-4" />
         </button>
-        <nav aria-label="Vị trí hiện tại" className="flex items-center gap-1.5 text-xs min-w-0">
+        <nav aria-label="Vị trí hiện tại" className="flex items-center gap-1.5 text-data min-w-0">
           <span className="text-slate-500 hidden sm:inline truncate">{isExecutive ? 'Ban Giám đốc' : deptName(user.departmentCode)}</span>
           <ChevronRight className="w-3.5 h-3.5 text-slate-300 hidden sm:inline shrink-0" />
-          <span className="font-bold text-slate-900 truncate">{TAB_LABELS[currentTab]}</span>
+          <span className="font-semibold text-slate-900 truncate">{TAB_LABELS[currentTab]}</span>
         </nav>
       </div>
 
       <div className="flex items-center gap-2 shrink-0">
         <button
           onClick={onOpenCommand}
-          className="hidden sm:flex h-8 items-center gap-2 px-2.5 text-xs text-slate-500 bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded"
+          className="hidden sm:flex h-8 w-44 xl:w-60 items-center justify-between gap-2 pl-2.5 pr-1.5 text-data text-slate-500 bg-white hover:bg-slate-50 border border-slate-300 rounded-md"
         >
-          <Search className="w-3.5 h-3.5" />
-          <span>Đi tới...</span>
-          <kbd className="font-mono text-[10px] bg-white px-1.5 py-0.5 border border-slate-200 rounded text-slate-500">Ctrl K</kbd>
+          <span className="flex items-center gap-2 min-w-0">
+            <Search className="w-3.5 h-3.5 shrink-0" />
+            <span className="truncate">Tìm nhanh hoặc chuyển trang</span>
+          </span>
+          <Kbd>Ctrl K</Kbd>
         </button>
 
-        <div className="hidden md:flex h-8 items-center gap-1.5 px-2.5 rounded border border-slate-200 bg-slate-50 text-xs">
-          <span className="font-mono font-bold text-slate-900">{isExecutive ? 'TOÀN CÔNG TY' : user.departmentCode}</span>
-          <span className="text-slate-300">/</span>
-          <span className="font-semibold text-slate-600">{ROLE_LABEL[user.role] ?? user.role}</span>
+        <div className="hidden md:flex h-8 items-center gap-2 px-2.5 rounded-md border border-slate-200 bg-slate-50">
+          <DeptBadge code={isExecutive ? '*' : user.departmentCode} />
+          <span className="text-micro font-semibold text-slate-700 whitespace-nowrap">{ROLE_LABEL[user.role] ?? user.role}</span>
         </div>
 
         <NotificationBell />

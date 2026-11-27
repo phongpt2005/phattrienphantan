@@ -1,33 +1,25 @@
 # CLAUDE
 
-Project-specific guidance for AI coding agents.
+Hướng dẫn cho tác tử AI khi sửa giao diện frontend của DMS Enterprise.
 
-<!-- ASTRYX:START -->
-Astryx v0.7.11 · 171 components
-CLI: run every command as `npx astryx <cmd>` (shown below as `astryx ...`).
+## Nguồn quy chuẩn
 
-SETUP (once, in your app entry e.g. main.tsx) — without these, components render unstyled:
-  import "@astryxdesign/core/reset.css";
-  import "@astryxdesign/core/astryx.css";
+- Đọc `../AGENTS.md` trước khi đổi giao diện: quy chuẩn chống dáng "AI", mật độ bảng, bảng màu doanh nghiệp, phân quyền ba vai trò.
+- Không dùng Astryx. Gói `@astryxdesign/*` đã được gỡ khỏi dự án theo quyết định của chủ dự án; không thêm lại.
 
-WORKFLOW — discover, don't guess. Before writing UI:
-1. `astryx build "<idea>"` — START HERE: returns a kit (closest [page] + [block]s + [component]s). No args = full playbook.
-2. `astryx template <name> [--skeleton]` — scaffold the [page]/[block]s it named, or study their layout. Templates are reference code.
-3. `astryx component <Name>` — props + examples for every component you use.
+## Hệ thống thiết kế hiện có
 
-RULES:
-- No <div> — components do all layout/spacing, page frame included.
-- Frame first: read `astryx docs layout` before writing any page or screen — page frame, region widths, breakpoint behavior.
-- Dense data = rows (Table, List/Item), never Card-wrapped list items; Card is for standalone widgets. Status = StatusDot/Token; Badge = counts only.
-- Custom styling: component props first; else Tailwind utilities backed by tokens (bg-surface, text-primary, rounded-lg) via tailwind-theme.css. No raw hex/px.
-- Tokens for every value (`astryx docs tokens`). Brand/accent belongs in the theme (`astryx theme list` / `theme add <slug>`, or `astryx theme template` for a custom one) — never override --color-* in :root.
-- SELF-CHECK before you finish: re-read the file and replace any style={{…}}, raw <div>/<span> layout, imported .css/@apply, or hardcoded/arbitrary value (e.g. bg-[#fff], p-[13px]) with the component or a token-backed utility. If unsure a component/prop exists, run `astryx component <Name>` / `astryx search "<thing>"`; don't hand-roll CSS.
+- Token và thang chữ: `tailwind.config.js`. Màu `brand-*` là xanh navy doanh nghiệp (500 = `#0064e0`, 700 = `#075985`). Cỡ chữ `text-micro` (11px, nhãn) và `text-data` (13px, dữ liệu bảng). Bóng `shadow-drawer` và `shadow-menu`.
+- Thành phần dùng chung: `src/components/ui.tsx`. Gồm `Pill`, `DeptBadge`, `DocStatusPill`, `AccessPill`, `PermissionPill`, `RequestStatusPill`, `StatusDot`, `Kbd`, `Avatar`, `PageHeader`, `Panel`, `Kpi`, `Th`, `Td`, `ROW`, `EmptyState`, `LoadingRows`, `Bar`, `INPUT`, `SELECT`, `TEXTAREA`, `SearchField`, `Field`, `Button`, `IconButton`, `Segmented`, `Tabs`, `Modal`, `Drawer`.
+- Chi tiết tài liệu luôn mở bằng `Drawer` (trượt từ phải, giữ nguyên danh sách phía sau). Xác nhận và nhập liệu nhỏ dùng `Modal`.
 
-MORE CLI:
-  search "<query>"   find any component / hook / doc / template / block
-  component --list   171 components by category
-  template --list    page + block recipes
-  docs <topic>       color, elevation, icons, illustrations, internationalization, layout, migration, motion, principles, shape, spacing, styling, theme, tokens, typography
-  swizzle <Name>     eject component source for deep customization
-  upgrade --apply    run after any @astryxdesign/core bump
-<!-- ASTRYX:END -->
+## Quy tắc
+
+- Hàng bảng cao 40px (`ROW`), tiêu đề bảng 36px (`Th`). Không bọc mỗi dòng trong thẻ riêng.
+- Không gradient, không phát sáng, không biểu tượng kiểu AI (sparkle, robot, não). Góc bo tối đa `rounded-lg`.
+- Màu trạng thái theo AGENTS.md: `success` (đã duyệt, được tải), `info` (chỉ xem DLP), `warning` (chờ duyệt), `danger` (thu hồi, từ chối). Dùng `<Pill tone=...>`.
+- Mã tài liệu, ngày giờ và mã băm dùng `font-mono`.
+- Không hard-code màu hex trong component; dùng token `brand-*` hoặc thang `slate-*`, `emerald-*`, `amber-*`, `red-*`, `blue-*`.
+- Khi chỉ đổi giao diện, không đổi gọi API trong `src/services/api.ts` và không đổi logic trong context.
+- Phân quyền hiển thị: Nhân viên không có nút chia sẻ và không có tab phê duyệt. Trưởng phòng có chia sẻ và phê duyệt. Ban Giám đốc có giám sát và báo cáo.
+- Trước khi kết thúc một thay đổi, `npm run build` trong thư mục `frontend` phải chạy qua.

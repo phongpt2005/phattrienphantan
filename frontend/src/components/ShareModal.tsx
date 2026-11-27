@@ -1,9 +1,10 @@
-import React, { useState, useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
+import { Check, Loader2, ShieldCheck } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { searchApi } from '../services/api';
 import { useToast } from '../context/ToastContext';
-import { Share2, X, Check, Loader2, Calendar, ShieldCheck } from 'lucide-react';
-import { useDepartments, deptName, deptTone, demoUsername } from '../context/DepartmentContext';
+import { useDepartments, deptName } from '../context/DepartmentContext';
+import { Button, Field, INPUT, Modal, SELECT } from './ui';
 
 interface ShareModalProps {
   isOpen: boolean;
@@ -13,6 +14,7 @@ interface ShareModalProps {
   onSuccess?: () => void;
 }
 
+/** Ủy quyền chia sẻ liên phòng: quyền có thời hạn, mức DLP (chỉ xem hoặc cho tải về), ghi vào sổ chia sẻ của phòng chủ. */
 export const ShareModal: React.FC<ShareModalProps> = ({ isOpen, docId, docTitle, onClose, onSuccess }) => {
   const { user } = useAuth();
   const toast = useToast();
@@ -32,10 +34,9 @@ export const ShareModal: React.FC<ShareModalProps> = ({ isOpen, docId, docTitle,
     setErrorMessage(null);
   }, [currentDept, oppositeDept, isOpen]);
 
-  if (!isOpen || !docId) return null;
-
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!docId) return;
     setErrorMessage(null);
     setIsSubmitting(true);
 
@@ -50,9 +51,12 @@ export const ShareModal: React.FC<ShareModalProps> = ({ isOpen, docId, docTitle,
       });
 
       const target = targetDept === '*' ? 'Toàn công ty' : targetDept;
-      // Server báo rõ: CREATED (cấp mới) hay EXTENDED (đã có lượt đang hiệu lực: đổi quyền/gia hạn)
+      // Server báo rõ: CREATED (cấp mới) hay EXTENDED (đã có lượt đang hiệu lực: đổi quyền hoặc gia hạn)
       if (result?.action === 'EXTENDED') {
-        toast.success(`Đã gia hạn và cập nhật quyền truy cập cho "${target}" (${permission === 'DOWNLOAD' ? 'xem và tải' : 'chỉ xem'}, ${days} ngày)`, 'Đã gia hạn chia sẻ');
+        toast.success(
+          `Đã gia hạn và cập nhật quyền truy cập cho "${target}" (${permission === 'DOWNLOAD' ? 'xem và tải' : 'chỉ xem'}, ${days} ngày)`,
+          'Đã gia hạn chia sẻ',
+        );
       } else {
         toast.success(`Đã cấp quyền truy cập cho "${target}" (${days} ngày)`, 'Đã cấp quyền');
       }
@@ -69,176 +73,113 @@ export const ShareModal: React.FC<ShareModalProps> = ({ isOpen, docId, docTitle,
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-slate-900/50 flex items-center justify-center p-4">
-      <div className="bg-white rounded max-w-md w-full p-5 shadow-xl border border-slate-200 space-y-4 animate-in fade-in duration-150">
-        {/* Header */}
-        <div className="flex items-center justify-between pb-3 border-b border-slate-100">
-          <div className="flex items-center gap-2">
-            <div className="w-8 h-8 rounded bg-blue-50 text-blue-700 flex items-center justify-center">
-              <Share2 className="w-4 h-4" />
-            </div>
-            <div>
-              <h3 className="font-bold text-sm text-slate-900">Ủy Quyền Chia Sẻ Liên Phòng Ban</h3>
-              <p className="text-[11px] text-slate-500 font-mono">Thẩm quyền Trưởng Phòng / Ban Giám Đốc</p>
-            </div>
-          </div>
-          <button
-            onClick={onClose}
-            className="p-1 text-slate-400 hover:text-slate-600 rounded hover:bg-slate-100 transition-colors"
-          >
-            <X className="w-4 h-4" />
-          </button>
-        </div>
-
-        {/* Policy notice */}
-        <div className="p-3 bg-amber-50/70 border border-amber-200 rounded text-[11px] text-amber-800 flex items-start gap-2">
-          <ShieldCheck className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+    <Modal
+      open={isOpen && !!docId}
+      onClose={onClose}
+      title="Ủy quyền chia sẻ liên phòng ban"
+      description="Quyền cấp cho phòng khác có thời hạn và được ghi vào sổ chia sẻ của phòng bạn."
+      width="max-w-md"
+    >
+      <form onSubmit={handleSubmit} className="space-y-4">
+        <div className="flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-micro text-amber-900">
+          <ShieldCheck className="w-4 h-4 text-amber-700 shrink-0 mt-px" />
           <span>
-            <strong>Quy chế bảo mật:</strong> Quyền chia sẻ chỉ có hiệu lực tạm thời trong thời hạn nhất định. Hết thời gian này, quyền xem của phòng ban đối tác sẽ tự động thu hồi.
+            <strong>Quy chế bảo mật:</strong> quyền chỉ có hiệu lực trong thời hạn đã chọn. Hết hạn, quyền của phòng đối tác tự thu hồi.
           </span>
         </div>
 
-        <form onSubmit={handleSubmit} className="space-y-3.5 text-xs">
-          <div>
-            <label className="block text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-1">
-              Tài liệu ủy quyền
-            </label>
-            <div className="text-xs font-bold text-slate-800 p-2.5 bg-slate-50 rounded border border-slate-200 leading-snug">
-              {docTitle}
-            </div>
+        <Field label="Tài liệu ủy quyền">
+          <div className="h-8 px-2.5 flex items-center rounded-md border border-slate-200 bg-slate-50 text-data font-medium text-slate-900 truncate">
+            {docTitle}
           </div>
+        </Field>
 
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="block text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-1">
-                Phòng ban thụ hưởng
-              </label>
-              <select
-                value={targetDept}
-                onChange={(e) => setTargetDept(e.target.value as any)}
-                className="w-full px-2.5 py-1.5 rounded border border-slate-300 bg-white font-bold text-slate-800"
-              >
-                {others(currentDept).map((code) => (
-                  <option key={code} value={code}>
-                    {deptName(code)} ({code})
-                  </option>
-                ))}
-                {user?.isExecutive && <option value="*">Toàn doanh nghiệp (*)</option>}
-              </select>
-            </div>
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="Phòng ban thụ hưởng" htmlFor="share-target">
+            <select id="share-target" value={targetDept} onChange={(e) => setTargetDept(e.target.value)} className={`${SELECT} w-full`}>
+              {others(currentDept).map((code) => (
+                <option key={code} value={code}>
+                  {deptName(code)} ({code})
+                </option>
+              ))}
+              {user?.isExecutive && <option value="*">Toàn doanh nghiệp (*)</option>}
+            </select>
+          </Field>
 
-            <div>
-              <label className="block text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-1">
-                Thời hạn cấp quyền
-              </label>
-              <select
-                value={days}
-                onChange={(e) => setDays(Number(e.target.value))}
-                className="w-full px-2.5 py-1.5 rounded border border-slate-300 bg-white font-medium text-slate-800 font-mono"
-              >
-                <option value={3}>3 ngày</option>
-                <option value={7}>7 ngày (Mặc định)</option>
-                <option value={14}>14 ngày</option>
-                <option value={30}>30 ngày</option>
-                <option value={90}>90 ngày</option>
-              </select>
-            </div>
-          </div>
+          <Field label="Thời hạn" htmlFor="share-days">
+            <select id="share-days" value={days} onChange={(e) => setDays(Number(e.target.value))} className={`${SELECT} w-full font-mono`}>
+              <option value={3}>3 ngày</option>
+              <option value={7}>7 ngày (mặc định)</option>
+              <option value={14}>14 ngày</option>
+              <option value={30}>30 ngày</option>
+              <option value={90}>90 ngày</option>
+            </select>
+          </Field>
+        </div>
 
-          <div>
-            <label className="block text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-1">
-              Cấp độ quyền hạn (DLP Policy)
-            </label>
-            <div className="grid grid-cols-2 gap-2">
-              <label
-                className={`p-2.5 rounded border cursor-pointer flex flex-col gap-0.5 ${
-                  permission === 'VIEW'
-                    ? 'border-blue-600 bg-blue-50/50 text-blue-900'
-                    : 'border-slate-200 hover:bg-slate-50 text-slate-700'
-                }`}
-              >
-                <div className="flex items-center gap-1.5 font-bold text-xs">
-                  <input
-                    type="radio"
-                    name="permission"
-                    checked={permission === 'VIEW'}
-                    onChange={() => setPermission('VIEW')}
-                    className="text-blue-600"
-                  />
-                  <span>Chỉ Xem Online (DLP)</span>
-                </div>
-                <span className="text-[10px] text-slate-500 pl-4">Khóa chức năng tải về</span>
-              </label>
-
-              <label
-                className={`p-2.5 rounded border cursor-pointer flex flex-col gap-0.5 ${
-                  permission === 'DOWNLOAD'
-                    ? 'border-emerald-600 bg-emerald-50/50 text-emerald-900'
-                    : 'border-slate-200 hover:bg-slate-50 text-slate-700'
-                }`}
-              >
-                <div className="flex items-center gap-1.5 font-bold text-xs">
-                  <input
-                    type="radio"
-                    name="permission"
-                    checked={permission === 'DOWNLOAD'}
-                    onChange={() => setPermission('DOWNLOAD')}
-                    className="text-emerald-600"
-                  />
-                  <span>Cho Phép Tải Về</span>
-                </div>
-                <span className="text-[10px] text-slate-500 pl-4">Tải tệp bản sao về máy</span>
-              </label>
-            </div>
-          </div>
-
-          <div>
-            <label className="block text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-1">
-              Mục đích / Căn cứ chia sẻ
-            </label>
-            <input
-              type="text"
-              value={reason}
-              onChange={(e) => setReason(e.target.value)}
-              placeholder="Ví dụ: Phối hợp thẩm định ngân sách tuyển dụng..."
-              className="w-full px-2.5 py-1.5 rounded border border-slate-300 text-xs text-slate-900"
-            />
-          </div>
-
-          {errorMessage && (
-            <div className="p-2.5 bg-red-50 border border-red-200 rounded text-red-700 text-xs">
-              {errorMessage}
-            </div>
-          )}
-
-          <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
-            <button
-              type="button"
-              onClick={onClose}
-              className="px-3 py-1.5 bg-white border border-slate-300 rounded text-slate-700 hover:bg-slate-50 font-medium"
+        <div className="flex flex-col gap-1.5">
+          <span className="text-micro font-semibold uppercase tracking-wider text-slate-500">Quyền hạn (chính sách DLP)</span>
+          <div className="grid grid-cols-2 gap-2">
+            <label
+              className={`p-2.5 rounded-md border cursor-pointer flex flex-col gap-0.5 transition-colors ${
+                permission === 'VIEW' ? 'border-brand-500 bg-brand-50 ring-2 ring-brand-500/15' : 'border-slate-300 hover:border-slate-400'
+              }`}
             >
-              Hủy bỏ
-            </button>
-            <button
-              type="submit"
-              disabled={isSubmitting}
-              className="px-4 py-1.5 bg-slate-900 hover:bg-slate-800 text-white font-bold rounded flex items-center gap-1.5 disabled:opacity-50 transition-colors shadow-xs"
+              <span className="flex items-center gap-2 text-data font-semibold text-slate-900">
+                <input
+                  type="radio"
+                  name="permission"
+                  checked={permission === 'VIEW'}
+                  onChange={() => setPermission('VIEW')}
+                  className="accent-brand-600"
+                />
+                Chỉ xem trực tuyến
+              </span>
+              <span className="pl-6 text-micro text-slate-500">Khóa chức năng tải về</span>
+            </label>
+
+            <label
+              className={`p-2.5 rounded-md border cursor-pointer flex flex-col gap-0.5 transition-colors ${
+                permission === 'DOWNLOAD' ? 'border-emerald-500 bg-emerald-50 ring-2 ring-emerald-500/15' : 'border-slate-300 hover:border-slate-400'
+              }`}
             >
-              {isSubmitting ? (
-                <>
-                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                  Đang ghi vào sổ chia sẻ của phòng...
-                </>
-              ) : (
-                <>
-                  <Check className="w-3.5 h-3.5" />
-                  Xác Nhận Cấp Quyền
-                </>
-              )}
-            </button>
+              <span className="flex items-center gap-2 text-data font-semibold text-slate-900">
+                <input
+                  type="radio"
+                  name="permission"
+                  checked={permission === 'DOWNLOAD'}
+                  onChange={() => setPermission('DOWNLOAD')}
+                  className="accent-emerald-600"
+                />
+                Cho phép tải về
+              </span>
+              <span className="pl-6 text-micro text-slate-500">Tải bản sao về máy</span>
+            </label>
           </div>
-        </form>
-      </div>
-    </div>
+        </div>
+
+        <Field label="Mục đích, căn cứ chia sẻ" htmlFor="share-reason">
+          <input
+            id="share-reason"
+            type="text"
+            value={reason}
+            onChange={(e) => setReason(e.target.value)}
+            placeholder="Ví dụ: phối hợp thẩm định ngân sách tuyển dụng"
+            className={INPUT}
+          />
+        </Field>
+
+        {errorMessage && <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-data text-red-800">{errorMessage}</div>}
+
+        <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-200">
+          <Button type="button" onClick={onClose}>
+            Hủy bỏ
+          </Button>
+          <Button type="submit" variant="primary" disabled={isSubmitting} icon={isSubmitting ? Loader2 : Check}>
+            {isSubmitting ? 'Đang ghi vào sổ chia sẻ...' : 'Xác nhận cấp quyền'}
+          </Button>
+        </div>
+      </form>
+    </Modal>
   );
 };

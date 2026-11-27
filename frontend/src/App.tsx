@@ -17,7 +17,8 @@ import { AppTab } from './types';
 const AppContent: React.FC = () => {
   const { user, isAuthenticated, isLoading } = useAuth();
   const [currentTab, setCurrentTab] = useState<AppTab>('workspace');
-  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
+  // Màn hình hẹp (dưới 1280px) mở sẵn thanh điều hướng thu gọn để nhường chỗ cho bảng dữ liệu
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(() => window.innerWidth < 1280);
   const [isCommandOpen, setIsCommandOpen] = useState(false);
 
   const isExecutive = user?.role === 'EXECUTIVE' || !!user?.isExecutive;
@@ -48,9 +49,9 @@ const AppContent: React.FC = () => {
 
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-slate-900 flex flex-col items-center justify-center text-white">
-        <Loader2 className="w-6 h-6 animate-spin mb-3" />
-        <div className="text-xs font-semibold">Đang kết nối hệ thống...</div>
+      <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center text-slate-500">
+        <Loader2 className="w-5 h-5 animate-spin text-brand-500 mb-3" />
+        <div className="text-data font-medium">Đang kết nối hệ thống...</div>
       </div>
     );
   }
@@ -75,18 +76,17 @@ const AppContent: React.FC = () => {
           onOpenCommand={() => setIsCommandOpen(true)}
         />
 
-        <main
-          key={currentTab}
-          className={`flex-1 overflow-hidden flex flex-col ${currentTab === 'workspace' ? 'bg-white' : 'overflow-y-auto p-4 sm:p-5 bg-slate-50'}`}
-        >
+        <main key={currentTab} className="flex-1 min-h-0 flex flex-col">
           {currentTab === 'workspace' ? (
             <WorkspaceTab />
           ) : (
-            <div className="max-w-[1400px] mx-auto w-full">
-              {currentTab === 'search' && <SearchTab />}
-              {currentTab === 'approvals' && isManagerOrExec && <ApprovalTab />}
-              {currentTab === 'system' && isExecutive && <SystemStatusTab />}
-              {currentTab === 'executive' && isExecutive && <ExecutiveTab />}
+            <div className="flex-1 min-h-0 overflow-y-auto">
+              <div className="max-w-[1280px] mx-auto w-full px-5 py-4">
+                {currentTab === 'search' && <SearchTab />}
+                {currentTab === 'approvals' && isManagerOrExec && <ApprovalTab />}
+                {currentTab === 'system' && isExecutive && <SystemStatusTab />}
+                {currentTab === 'executive' && isExecutive && <ExecutiveTab />}
+              </div>
             </div>
           )}
         </main>

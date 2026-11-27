@@ -5,6 +5,7 @@ import { useDepartments } from '../context/DepartmentContext';
 import { demoAccounts } from '../demo';
 import { AppTab } from '../types';
 import { TAB_LABELS } from './Header';
+import { Kbd } from './ui';
 
 interface CommandMenuProps {
   isOpen: boolean;
@@ -120,11 +121,11 @@ export const CommandMenu: React.FC<CommandMenuProps> = ({ isOpen, onClose, onSel
   let lastGroup = '';
 
   return (
-    <div className="fixed inset-0 z-50 flex items-start justify-center pt-24 px-4 bg-slate-900/40" onMouseDown={onClose}>
+    <div className="fixed inset-0 z-50 flex items-start justify-center pt-[12vh] px-4 bg-slate-900/40 animate-fade-in" onMouseDown={onClose}>
       <div
         role="dialog"
         aria-label="Bảng lệnh"
-        className="w-full max-w-xl bg-white rounded border border-slate-200 shadow-xl overflow-hidden"
+        className="w-full max-w-xl bg-white rounded-lg border border-slate-200 shadow-menu overflow-hidden"
         onMouseDown={(e) => e.stopPropagation()}
         onKeyDown={onKeyDown}
       >
@@ -134,46 +135,49 @@ export const CommandMenu: React.FC<CommandMenuProps> = ({ isOpen, onClose, onSel
             autoFocus
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="Gõ để tìm màn hình hoặc vai trò..."
-            className="w-full h-11 text-sm text-slate-900 placeholder-slate-400 bg-transparent outline-none"
+            placeholder="Tìm màn hình hoặc đổi vai trò"
+            aria-label="Tìm lệnh"
+            className="w-full h-11 text-data text-slate-900 placeholder:text-slate-400 bg-transparent outline-none"
           />
-          <kbd className="font-mono text-[10px] px-1.5 py-0.5 text-slate-500 bg-slate-50 border border-slate-200 rounded">Esc</kbd>
+          <Kbd>Esc</Kbd>
         </div>
 
         <div ref={listRef} className="max-h-80 overflow-y-auto p-1.5">
-          {filtered.length === 0 && <div className="py-8 text-center text-xs text-slate-400">Không có lệnh nào khớp.</div>}
+          {filtered.length === 0 && <div className="py-8 text-center text-data text-slate-500">Không có lệnh nào khớp.</div>}
           {filtered.map((c, i) => {
             const header = c.group !== lastGroup;
             lastGroup = c.group;
             const active = i === cursor;
             return (
               <React.Fragment key={c.id}>
-                {header && <div className="px-2 pt-2 pb-1 text-[11px] font-bold uppercase tracking-wider text-slate-400">{c.group}</div>}
+                {header && <div className="px-2 pt-2 pb-1 text-micro font-semibold uppercase tracking-wider text-slate-500">{c.group}</div>}
                 <button
                   data-index={i}
                   onMouseEnter={() => setCursor(i)}
                   onClick={() => runAt(i)}
-                  className={`w-full h-10 flex items-center gap-2.5 px-2.5 rounded text-left ${active ? 'bg-slate-900 text-white' : 'text-slate-700'}`}
+                  className={`w-full h-9 flex items-center gap-2.5 px-2.5 rounded-md text-left transition-colors ${
+                    active ? 'bg-brand-50 text-brand-800' : 'text-slate-700'
+                  }`}
                 >
-                  <c.icon className={`w-4 h-4 shrink-0 ${active ? 'text-white' : 'text-slate-400'}`} />
-                  <span className="text-xs font-semibold shrink-0">{c.title}</span>
-                  <span className={`text-[11px] truncate ${active ? 'text-slate-300' : 'text-slate-400'}`}>{c.hint}</span>
-                  {active && <CornerDownLeft className="w-3.5 h-3.5 ml-auto shrink-0 text-slate-300" />}
+                  <c.icon className={`w-4 h-4 shrink-0 ${active ? 'text-brand-600' : 'text-slate-400'}`} />
+                  <span className="text-data font-semibold shrink-0">{c.title}</span>
+                  <span className="text-micro text-slate-500 truncate">{c.hint}</span>
+                  {active && <CornerDownLeft className="w-3.5 h-3.5 ml-auto shrink-0 text-brand-500" />}
                 </button>
               </React.Fragment>
             );
           })}
         </div>
 
-        <div className="px-3.5 h-8 border-t border-slate-200 bg-slate-50 flex items-center gap-4 text-[11px] text-slate-500">
-          <span>
-            <kbd className="font-mono">↑↓</kbd> chọn
+        <div className="px-3.5 h-9 border-t border-slate-200 bg-slate-50 flex items-center gap-4 text-micro text-slate-500">
+          <span className="flex items-center gap-1.5">
+            <Kbd>↑↓</Kbd> chọn
           </span>
-          <span>
-            <kbd className="font-mono">Enter</kbd> mở
+          <span className="flex items-center gap-1.5">
+            <Kbd>Enter</Kbd> mở
           </span>
-          <span>
-            <kbd className="font-mono">Ctrl K</kbd> đóng/mở
+          <span className="flex items-center gap-1.5">
+            <Kbd>Ctrl K</Kbd> đóng hoặc mở
           </span>
         </div>
       </div>

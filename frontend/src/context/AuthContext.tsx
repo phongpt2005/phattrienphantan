@@ -5,7 +5,10 @@ import { authApi, setAuthToken } from '../services/api';
 interface AuthContextType {
   user: UserSession | null;
   isAuthenticated: boolean;
+  /** Đang khôi phục phiên khi mở trang (chỉ dùng cho màn chờ khởi động) */
   isLoading: boolean;
+  /** Đang gửi yêu cầu đăng nhập: form vẫn hiển thị để báo lỗi nếu có */
+  isSigningIn: boolean;
   login: (dept: string, username: string, password: string, isExecutive?: boolean) => Promise<{ success: boolean; message?: string }>;
   logout: () => void;
 }
@@ -14,6 +17,7 @@ const AuthContext = createContext<AuthContextType>({
   user: null,
   isAuthenticated: false,
   isLoading: true,
+  isSigningIn: false,
   login: async () => ({ success: false }),
   logout: () => {},
 });
@@ -21,6 +25,7 @@ const AuthContext = createContext<AuthContextType>({
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<UserSession | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(true);
+  const [isSigningIn, setIsSigningIn] = useState<boolean>(false);
 
   // Khôi phục session từ localStorage khi reload trang
   useEffect(() => {
@@ -47,7 +52,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     password: string,
     isExecutive = false,
   ): Promise<{ success: boolean; message?: string }> => {
-    setIsLoading(true);
+    setIsSigningIn(true);
     try {
       const res = await authApi.login(dept, { username, password });
       const token = res.accessToken || res.token;
@@ -92,7 +97,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         'Đăng nhập không thành công. Vui lòng kiểm tra lại thông tin.';
       return { success: false, message: errorMsg };
     } finally {
-      setIsLoading(false);
+      setIsSigningIn(false);
     }
   };
 
@@ -108,6 +113,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         user,
         isAuthenticated: !!user && !!user.token,
         isLoading,
+        isSigningIn,
         login,
         logout,
       }}

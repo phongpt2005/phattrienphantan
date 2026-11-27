@@ -129,7 +129,7 @@ export const ExecutiveTab: React.FC = () => {
         description="Số liệu tài liệu, chia sẻ liên phòng ban và đồng bộ trên toàn doanh nghiệp, tổng hợp từ chỉ mục trung tâm."
         actions={
           <>
-            {loadedAt && <span className="text-[11px] text-slate-500 font-mono">Số liệu lúc {loadedAt.toLocaleTimeString('vi-VN')}</span>}
+            {loadedAt && <span className="font-mono text-micro text-slate-500 mr-1">Số liệu lúc {loadedAt.toLocaleTimeString('vi-VN')}</span>}
             <Button icon={RefreshCw} onClick={() => void load()} disabled={loading}>
               Làm mới
             </Button>
@@ -146,7 +146,7 @@ export const ExecutiveTab: React.FC = () => {
         <Kpi
           label="Chia sẻ đang hiệu lực"
           value={fmtNumber(sharing?.active_shares)}
-          hint={`trên ${fmtNumber(sharing?.total_shares_created)} lượt đã cấp · ${fmtNumber(sharing?.expired_or_revoked_shares)} đã hết hạn/thu hồi`}
+          hint={`trên ${fmtNumber(sharing?.total_shares_created)} lượt đã cấp · ${fmtNumber(sharing?.expired_or_revoked_shares)} đã hết hạn hoặc thu hồi`}
         />
         <Kpi
           label="Yêu cầu xin quyền chờ duyệt"
@@ -170,34 +170,34 @@ export const ExecutiveTab: React.FC = () => {
           ) : deptRows.length === 0 ? (
             <EmptyState title="Chưa có phòng ban nào" />
           ) : (
-            <table className="w-full">
+            <table className="w-full border-collapse">
               <thead>
-                <tr className="border-b border-slate-200">
-                  <Th>Phòng ban</Th>
+                <tr>
+                  <Th className="pl-4">Phòng ban</Th>
                   <Th className="text-right">Tài liệu</Th>
                   <Th className="w-[38%]">Tỉ trọng</Th>
-                  <Th className="text-right">Đồng bộ gần nhất</Th>
+                  <Th className="pr-4 text-right">Đồng bộ gần nhất</Th>
                 </tr>
               </thead>
               <tbody>
                 {deptRows.map((d) => (
                   <tr key={d.code} className={ROW}>
-                    <Td>
+                    <Td className="pl-4">
                       <span className="flex items-center gap-2">
                         <DeptBadge code={d.code} />
-                        <span className="font-semibold text-slate-900">{d.name}</span>
+                        <span className="font-medium text-slate-900">{d.name}</span>
                       </span>
                     </Td>
                     <Td className="text-right font-mono text-slate-900">{fmtNumber(d.docs)}</Td>
                     <Td>
                       <span className="flex items-center gap-2">
                         <Bar value={d.docs} max={maxDocs} />
-                        <span className="font-mono text-[11px] text-slate-500 w-10 text-right shrink-0">
+                        <span className="font-mono text-micro text-slate-500 w-10 text-right shrink-0">
                           {totalDocs > 0 ? Math.round((d.docs / totalDocs) * 100) : 0}%
                         </span>
                       </span>
                     </Td>
-                    <Td className="text-right font-mono text-slate-600 whitespace-nowrap">{fmtDateTime(d.lastSynced)}</Td>
+                    <Td className="pr-4 text-right font-mono text-micro text-slate-600 whitespace-nowrap">{fmtDateTime(d.lastSynced)}</Td>
                   </tr>
                 ))}
               </tbody>
@@ -208,31 +208,35 @@ export const ExecutiveTab: React.FC = () => {
         {/* Cơ cấu */}
         <div className="space-y-4">
           <Panel title="Trạng thái tài liệu">
-            <div className="p-3.5 space-y-2.5">
-              {statusRows.length === 0 && <div className="text-xs text-slate-500">Chưa có dữ liệu.</div>}
+            <div className="p-3.5 space-y-3">
+              {statusRows.length === 0 && <div className="text-data text-slate-500">Chưa có dữ liệu.</div>}
               {statusRows.map((s) => (
                 <div key={s.status}>
-                  <div className="flex items-center justify-between mb-1">
+                  <div className="flex items-center justify-between mb-1.5">
                     <DocStatusPill status={s.status} />
-                    <span className="font-mono text-xs text-slate-700">
+                    <span className="font-mono text-micro text-slate-700">
                       {fmtNumber(s.count)} <span className="text-slate-400">({Math.round((s.count / statusTotal) * 100)}%)</span>
                     </span>
                   </div>
-                  <Bar value={s.count} max={statusTotal} className={s.status === 'PUBLISHED' ? 'bg-emerald-600' : s.status === 'DRAFT' ? 'bg-amber-500' : 'bg-slate-400'} />
+                  <Bar
+                    value={s.count}
+                    max={statusTotal}
+                    className={s.status === 'PUBLISHED' ? 'bg-emerald-600' : s.status === 'DRAFT' ? 'bg-amber-500' : 'bg-slate-400'}
+                  />
                 </div>
               ))}
             </div>
           </Panel>
           <Panel title="Định dạng tệp">
-            <div className="p-3.5 space-y-2.5">
-              {typeRows.length === 0 && <div className="text-xs text-slate-500">Chưa có dữ liệu.</div>}
+            <div className="p-3.5 space-y-3">
+              {typeRows.length === 0 && <div className="text-data text-slate-500">Chưa có dữ liệu.</div>}
               {typeRows.slice(0, 6).map((t) => (
                 <div key={t.mime}>
-                  <div className="flex items-center justify-between mb-1">
-                    <span className="text-xs font-semibold text-slate-800" title={t.mime}>
+                  <div className="flex items-center justify-between mb-1.5">
+                    <span className="text-data font-medium text-slate-800" title={t.mime}>
                       {t.label}
                     </span>
-                    <span className="font-mono text-xs text-slate-700">
+                    <span className="font-mono text-micro text-slate-700">
                       {fmtNumber(t.count)} <span className="text-slate-400">({Math.round((t.count / typeTotal) * 100)}%)</span>
                     </span>
                   </div>
@@ -247,18 +251,21 @@ export const ExecutiveTab: React.FC = () => {
       {/* Chia sẻ đang hiệu lực */}
       <Panel title="Chia sẻ liên phòng ban đang hiệu lực" note="10 lượt mới nhất">
         {shares.length === 0 ? (
-          <EmptyState title="Không có chia sẻ nào đang hiệu lực" hint="Trưởng phòng chia sẻ tài liệu hoặc duyệt yêu cầu xin quyền thì lượt chia sẻ sẽ hiện ở đây." />
+          <EmptyState
+            title="Không có chia sẻ nào đang hiệu lực"
+            hint="Trưởng phòng chia sẻ tài liệu hoặc duyệt yêu cầu xin quyền thì lượt chia sẻ sẽ hiện ở đây."
+          />
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full">
+            <table className="w-full border-collapse">
               <thead>
-                <tr className="border-b border-slate-200">
-                  <Th>Tài liệu</Th>
+                <tr>
+                  <Th className="pl-4">Tài liệu</Th>
                   <Th>Từ</Th>
                   <Th>Đến</Th>
                   <Th>Quyền</Th>
                   <Th>Cấp lúc</Th>
-                  <Th className="text-right">Còn hiệu lực</Th>
+                  <Th className="pr-4 text-right">Còn hiệu lực</Th>
                 </tr>
               </thead>
               <tbody>
@@ -266,9 +273,9 @@ export const ExecutiveTab: React.FC = () => {
                   const left = daysUntil(s.expires_at);
                   return (
                     <tr key={`${s.central_doc_id}-${i}`} className={ROW}>
-                      <Td>
-                        <span className="font-mono text-[11px] text-slate-400 mr-2">#{s.central_doc_id}</span>
-                        <span className="font-semibold text-slate-900">{s.title}</span>
+                      <Td className="pl-4">
+                        <span className="font-mono text-micro text-slate-400 mr-2">#{s.central_doc_id}</span>
+                        <span className="font-medium text-slate-900">{s.title}</span>
                       </Td>
                       <Td>
                         <DeptBadge code={s.shared_by_dept} />
@@ -279,8 +286,8 @@ export const ExecutiveTab: React.FC = () => {
                       <Td>
                         <PermissionPill permission={s.permission} />
                       </Td>
-                      <Td className="font-mono text-slate-600 whitespace-nowrap">{fmtDateTime(s.created_at)}</Td>
-                      <Td className={`text-right font-mono whitespace-nowrap ${left !== null && left <= 2 ? 'text-amber-700 font-bold' : 'text-slate-600'}`}>
+                      <Td className="font-mono text-micro text-slate-600 whitespace-nowrap">{fmtDateTime(s.created_at)}</Td>
+                      <Td className={`pr-4 text-right font-mono text-micro whitespace-nowrap ${left !== null && left <= 2 ? 'text-amber-700 font-semibold' : 'text-slate-600'}`}>
                         {left === null ? 'Không thời hạn' : `${left} ngày`}
                       </Td>
                     </tr>
@@ -321,15 +328,15 @@ export const ExecutiveTab: React.FC = () => {
           <EmptyState title="Không có sự kiện nào khớp bộ lọc" />
         ) : (
           <div className="overflow-x-auto max-h-[28rem] overflow-y-auto">
-            <table className="w-full">
-              <thead className="sticky top-0 bg-white">
-                <tr className="border-b border-slate-200">
-                  <Th>Thời điểm</Th>
+            <table className="w-full border-collapse">
+              <thead className="sticky top-0 z-10">
+                <tr>
+                  <Th className="pl-4">Thời điểm</Th>
                   <Th>Phòng ban</Th>
                   <Th>Thao tác</Th>
                   <Th>Tài liệu</Th>
                   <Th>Người sở hữu</Th>
-                  <Th className="text-right">Kết quả đồng bộ</Th>
+                  <Th className="pr-4 text-right">Kết quả đồng bộ</Th>
                 </tr>
               </thead>
               <tbody>
@@ -338,19 +345,19 @@ export const ExecutiveTab: React.FC = () => {
                   const st = SYNC_STATUS[e.process_status ?? ''] ?? { label: e.process_status ?? '—', tone: 'neutral' as const };
                   return (
                     <tr key={e.event_id} className={ROW}>
-                      <Td className="font-mono text-slate-600 whitespace-nowrap">{fmtDateTime(e.received_at)}</Td>
+                      <Td className="pl-4 font-mono text-micro text-slate-600 whitespace-nowrap">{fmtDateTime(e.received_at)}</Td>
                       <Td>
                         <DeptBadge code={e.dept_code} />
                       </Td>
                       <Td>
                         <Pill tone={ev.tone}>{ev.label}</Pill>
                       </Td>
-                      <Td>
-                        <span className="font-mono text-[11px] text-slate-400 mr-2">#DOC-{e.source_doc_id ?? '—'}</span>
-                        <span className="font-semibold text-slate-900">{e.document_title}</span>
+                      <Td className="max-w-[320px]">
+                        <span className="font-mono text-micro text-slate-400 mr-2">#DOC-{e.source_doc_id ?? '—'}</span>
+                        <span className="font-medium text-slate-900">{e.document_title}</span>
                       </Td>
-                      <Td className="text-slate-600">{e.actor || '—'}</Td>
-                      <Td className="text-right">
+                      <Td className="text-slate-600 whitespace-nowrap">{e.actor || '—'}</Td>
+                      <Td className="pr-4 text-right">
                         <Pill tone={st.tone}>{st.label}</Pill>
                       </Td>
                     </tr>
