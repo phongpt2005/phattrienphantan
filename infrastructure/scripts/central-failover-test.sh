@@ -46,7 +46,7 @@ is_primary() { docker exec "$1" wget -q -T 3 -O /dev/null http://127.0.0.1:8008/
 leaders()    { local n=0 c; for c in $NODES; do is_primary "$c" && n=$((n+1)); done; echo $n; }
 leader()     { local c; for c in $NODES; do is_primary "$c" && { echo "$c"; return; }; done; }
 other()      { [ "$1" = central-pg-1 ] && echo central-pg-2 || echo central-pg-1; }
-lsql()       { docker exec "$1" psql -U "$POSTGRES_CENTRAL_USER" -d "$POSTGRES_CENTRAL_DB" -tAc "$2" 2>&1; }      # nối cục bộ trong node
+lsql()       { dx "$1" psql -U "$POSTGRES_CENTRAL_USER" -d "$POSTGRES_CENTRAL_DB" -tAc "$2" 2>&1; }      # nối cục bộ trong node
 psql_hap()   { docker exec -e PGPASSWORD central-db psql "host=127.0.0.1 port=5432 user=$POSTGRES_CENTRAL_USER dbname=$POSTGRES_CENTRAL_DB connect_timeout=3" -qtAc "$1" 2>&1; }   # -q: không in dòng trạng thái "INSERT 0 1"
 wait_leader(){ local t0; t0=$(date +%s); while [ $(( $(date +%s)-t0 )) -lt "${1:-90}" ]; do [ "$(leaders)" = 1 ] && return 0; sleep 1; done; return 1; }
 sync_state() { lsql "$1" "select coalesce(string_agg(application_name||':'||state||':'||sync_state, ','), '') from pg_stat_replication where application_name like 'central-pg-%'"; }

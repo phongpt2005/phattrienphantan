@@ -27,7 +27,7 @@ check(){ if [ -n "$2" ] && [ "$2" = "$3" ]; then ok "$1"; else bad "$1 (nhận '
 replicas() { docker compose ps -q content-worker 2>/dev/null | grep -c .; }
 lag() { curl -s -m 5 "$PROM/api/v1/query" --data-urlencode 'query=sum(kafka_consumergroup_lag{consumergroup="content-indexer"})' \
         | python -I -X utf8 -c 'import sys,json; d=json.load(sys.stdin)["data"]["result"]; print(int(float(d[0]["value"][1])) if d else "")' 2>/dev/null; }
-CEN() { docker exec "$(central_leader)" psql -U "$POSTGRES_CENTRAL_USER" -d "$POSTGRES_CENTRAL_DB" -tAc "$1"; }
+CEN() { dx "$(central_leader)" psql -U "$POSTGRES_CENTRAL_USER" -d "$POSTGRES_CENTRAL_DB" -tAc "$1"; }
 ORIG=$(replicas); SLOW=""; ASPID=""
 cleanup() {
   touch "$TMP/stop"; [ -n "$ASPID" ] && wait "$ASPID" 2>/dev/null

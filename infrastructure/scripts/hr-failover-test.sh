@@ -40,8 +40,8 @@ trap cleanup EXIT
 is_primary() { docker exec "$1" wget -q -T 3 -O /dev/null http://127.0.0.1:8008/primary 2>/dev/null; }
 leaders() { local n=0 c; for c in $NODES; do is_primary "$c" && n=$((n+1)); done; echo $n; }
 other()   { [ "$1" = hr-pg-1 ] && echo hr-pg-2 || echo hr-pg-1; }
-lsql()    { docker exec "$1" psql -U "$POSTGRES_HR_USER" -d "$POSTGRES_HR_DB" -tAc "$2" 2>&1; }
-CEN()     { docker exec "$(central_leader)" psql -U "$POSTGRES_CENTRAL_USER" -d "$POSTGRES_CENTRAL_DB" -tAc "$1"; }
+lsql()    { dx "$1" psql -U "$POSTGRES_HR_USER" -d "$POSTGRES_HR_DB" -tAc "$2" 2>&1; }
+CEN()     { dx "$(central_leader)" psql -U "$POSTGRES_CENTRAL_USER" -d "$POSTGRES_CENTRAL_DB" -tAc "$1"; }
 psql_hap(){ docker exec -e PGPASSWORD hr-db psql "host=127.0.0.1 port=5432 user=$POSTGRES_HR_USER dbname=$POSTGRES_HR_DB connect_timeout=3" -qtAc "$1" 2>&1; }
 wait_leader(){ local t0; t0=$(date +%s); while [ $(( $(date +%s)-t0 )) -lt "${1:-90}" ]; do [ "$(leaders)" = 1 ] && return 0; sleep 1; done; return 1; }
 wait_sync() { local t0; t0=$(date +%s); while [ $(( $(date +%s)-t0 )) -lt "$2" ]; do
@@ -53,9 +53,9 @@ slot_usable() { lsql "$1" "select case when (pg_wal_lsn_diff(s.restart_lsn,'0/0'
   from pg_replication_slots s, (select setting::bigint seg from pg_settings where name='wal_segment_size') w,
        (select min(name) n from pg_ls_waldir() where name ~ '^[0-9A-F]{24}\$') o where s.slot_name='dbz_hr_outbox'"; }
 wait_slot() { local t0; t0=$(date +%s); while [ $(( $(date +%s)-t0 )) -lt "$2" ]; do [ "$(has_slot "$1")" = 1 ] && [ "$(slot_usable "$1")" = 1 ] && return 0; sleep 3; done; return 1; }
-guard_state() { docker exec "$1" sh -c 'cat /tmp/slot-guard.json 2>/dev/null' | python -I -X utf8 -c 'import sys,json; print(json.load(sys.stdin).get("slots",{}).get("dbz_hr_outbox",""))' 2>/dev/null; }
-CW() { local h; for h in debezium debezium-2; do docker exec "$h" curl -s -m 3 -o /dev/null http://localhost:8083/ 2>/dev/null && { echo "$h"; return; }; done; }
-conn_state() { docker exec "$(CW)" curl -s -m 10 http://localhost:8083/connectors/outbox-hr/status | python -I -X utf8 -c 'import sys,json; d=json.load(sys.stdin); print(d["connector"]["state"]+"/"+",".join(t["state"] for t in d["tasks"]))' 2>/dev/null; }
+guard_state() { dx "$1" sh -c 'cat /tmp/slot-guard.json 2>/dev/null' | python -I -X utf8 -c 'import sys,json; print(json.load(sys.stdin).get("slots",{}).get("dbz_hr_outbox",""))' 2>/dev/null; }
+CW() { local h; for h in debezium debezium-2; do dx "$h" curl -s -m 3 -o /dev/null http://localhost:8083/ 2>/dev/null && { echo "$h"; return; }; done; }
+conn_state() { dx "$(CW)" curl -s -m 10 http://localhost:8083/connectors/outbox-hr/status | python -I -X utf8 -c 'import sys,json; d=json.load(sys.stdin); print(d["connector"]["state"]+"/"+",".join(t["state"] for t in d["tasks"]))' 2>/dev/null; }
 
 # Ghi nền qua HAProxy: 'ack <id> <giây>' hoặc 'err <id> <giây>'
 writer_start() {

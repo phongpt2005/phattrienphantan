@@ -18,7 +18,7 @@ PASS=0; FAIL=0
 ok()  { PASS=$((PASS+1)); printf "  \033[32mPASS\033[0m %s\n" "$1"; }
 bad() { FAIL=$((FAIL+1)); printf "  \033[31mFAIL\033[0m %s\n" "$1"; }
 chk() { if [ "$2" = "$3" ]; then ok "$1 ($2)"; else bad "$1 (nhận '$2', mong đợi '$3')"; fi; }
-CEN() { docker exec "$(central_leader)" psql -U "$POSTGRES_CENTRAL_USER" -d "$POSTGRES_CENTRAL_DB" -tAc "$1"; }
+CEN() { dx "$(central_leader)" psql -U "$POSTGRES_CENTRAL_USER" -d "$POSTGRES_CENTRAL_DB" -tAc "$1"; }
 HRDB() { docker exec "$(hr_leader)" psql -U "$POSTGRES_HR_USER" -d "$POSTGRES_HR_DB" -tAc "$1"; }
 # Container CSDL của HR bị cắt cùng node: cụm Patroni (2 node + 2 HAProxy, P2 N2) hoặc máy chủ đơn cũ
 if [ "$(hr_mode)" = patroni ]; then HR_DB_CUT="hr-pg-1 hr-pg-2 hr-db hr-db-2"; else HR_DB_CUT="postgres-hr-primary"; fi

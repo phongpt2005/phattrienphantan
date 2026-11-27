@@ -15,6 +15,9 @@ cd "$(dirname "$0")/../.."
 set -a; . ./.env; set +a
 . infrastructure/scripts/lib-central.sh
 export MSYS_NO_PATHCONV=1
+# Mọi bài kiểm con gọi thẳng docker.exe thay cho script bọc của Docker Desktop (lib-central.sh nói lý do; đo 2026-11-27:
+# 4,7 giây so với 1,1 giây mỗi lệnh khi máy thiếu bộ nhớ). Hàm được truyền xuống các tiến trình bash con.
+if [ "${DOCKER_BIN:-docker}" = docker.exe ]; then export -f docker; export DOCKER_BIN; fi
 STAMP=$(date +%Y%m%d_%H%M%S)
 OUT="logs/scorecard-$STAMP"; mkdir -p "$OUT"
 S=infrastructure/scripts
@@ -28,8 +31,11 @@ kafka|Chịu lỗi tầng dữ liệu|Kafka 3 broker, RF 3, min ISR 2|bash '"$S"
 debezium|Chịu lỗi tầng dữ liệu|Debezium 2 worker|bash '"$S"'/debezium-failover-test.sh|900
 partition|Phân tán và tự trị|Phòng HR đứt mạng: tự trị, hội tụ, không ghi đè bằng sự kiện cũ|bash '"$S"'/partition-test.sh|1200
 replica|Phân tán và tự trị|Mỗi phòng 2 bản node, một bản sập vẫn phục vụ|bash '"$S"'/node-replica-test.sh|1200
-chaos-central|Phân tán và tự trị|Chaos: trung tâm sập, các phòng vẫn chạy|python -X utf8 infrastructure/chaos/run_scenario.py infrastructure/chaos/scenarios/central-down.json|900
-chaos-minio|Phân tán và tự trị|Chaos: kho tệp HR sập|python -X utf8 infrastructure/chaos/run_scenario.py infrastructure/chaos/scenarios/minio-hr-down.json|900
+chaos-central|Phân tán và tự trị|Chaos: trung tâm sập, các phòng vẫn chạy|python -X utf8 infrastructure/chaos/run_scenario.py infrastructure/chaos/scenarios/central-down.yaml|900
+chaos-minio|Phân tán và tự trị|Chaos: kho tệp HR sập|python -X utf8 infrastructure/chaos/run_scenario.py infrastructure/chaos/scenarios/minio-hr-down.yaml|900
+chaos-redis|Phân tán và tự trị|Chaos: cả hai bản Redis sập, đăng nhập và tìm kiếm vẫn chạy|python -X utf8 infrastructure/chaos/run_scenario.py infrastructure/chaos/scenarios/redis-down.yaml|900
+sentinel|Chịu lỗi tầng dữ liệu|Redis bản sao và 3 Sentinel: chuyển bản chính, thu hồi token vẫn hiệu lực|bash '"$S"'/redis-sentinel-test.sh|1200
+vip|Phân tán và tự trị|2 gateway + 2 bộ cân bằng (HAProxy, Keepalived) giữ địa chỉ ảo bên trong mạng|bash '"$S"'/keepalived-test.sh|900
 approval|Tính đúng và nhất quán|Đua duyệt yêu cầu xin quyền|bash '"$S"'/approval-race-test.sh|600
 provenance|Tính đúng và nhất quán|Truy vết lượt chia sẻ|bash '"$S"'/share-provenance-test.sh|600
 epoch|Tính đúng và nhất quán|Projector tự phục hồi tiến độ|bash '"$S"'/projector-epoch-test.sh|900

@@ -7,6 +7,22 @@
 #   @postgres-central-primary -> máy chủ đơn cũ
 # Nhờ vậy script đúng cả trước khi chuyển, sau khi chuyển và khi quay lui. Không in DATABASE_URL (có mật khẩu).
 # ============================================================
+
+# docker exec cho truy vấn ngắn, có giới hạn thời gian (mặc định 45 giây, DX_TIMEOUT để đổi). Ngày 2026-11-27, khi máy
+# thiếu bộ nhớ, ba bài kiểm (e2e, hr, replica) đứng yên tới hết giờ của bảng điểm ở một lệnh docker exec vào container
+# Patroni, dù dữ liệu cần chờ đã có. Có giới hạn thì lệnh treo chỉ làm hỏng một lần hỏi, vòng chờ hỏi lại lần sau.
+# Không dùng cho lệnh chạy dài (bộ ghi nền, khôi phục dữ liệu).
+# Trong Git Bash, "docker" là script bọc của Docker Desktop (sh + basename + uname rồi mới gọi docker.exe, không exec):
+# mỗi lệnh thêm 3 tiến trình MSYS, chậm và dễ treo khi máy thiếu bộ nhớ; timeout giết sh thì docker.exe con vẫn sống
+# và giữ ống dẫn. Có docker.exe thì gọi thẳng.
+if command -v docker.exe >/dev/null 2>&1; then
+  DOCKER_BIN=docker.exe
+  docker() { docker.exe "$@"; }
+else
+  DOCKER_BIN=docker
+fi
+dx() { MSYS_NO_PATHCONV=1 timeout -k 5 "${DX_TIMEOUT:-45}" "$DOCKER_BIN" exec "$@"; }
+
 central_mode() {
   local id
   id=$(docker ps -aq --filter name=search-engine-service 2>/dev/null | head -1)
@@ -30,7 +46,7 @@ patroni_leader() {
   local c t0; t0=$(date +%s)
   while :; do
     for c in "$@"; do
-      if MSYS_NO_PATHCONV=1 docker exec "$c" wget -q -T 3 -O /dev/null http://127.0.0.1:8008/primary 2>/dev/null; then echo "$c"; return 0; fi
+      if DX_TIMEOUT=15 dx "$c" wget -q -T 3 -O /dev/null http://127.0.0.1:8008/primary 2>/dev/null; then echo "$c"; return 0; fi
     done
     [ $(( $(date +%s) - t0 )) -ge "${LEADER_WAIT:-15}" ] && return 1
     sleep 2
@@ -47,7 +63,7 @@ central_wait() {
   local t0 l
   t0=$(date +%s)
   while [ $(( $(date +%s) - t0 )) -lt "${1:-90}" ]; do
-    l=$(central_leader) && [ -n "$l" ] && docker exec "$l" psql -U "$POSTGRES_CENTRAL_USER" -d "$POSTGRES_CENTRAL_DB" -tAc 'select 1' >/dev/null 2>&1 && return 0
+    l=$(central_leader) && [ -n "$l" ] && dx "$l" psql -U "$POSTGRES_CENTRAL_USER" -d "$POSTGRES_CENTRAL_DB" -tAc 'select 1' >/dev/null 2>&1 && return 0
     sleep 1
   done
   return 1

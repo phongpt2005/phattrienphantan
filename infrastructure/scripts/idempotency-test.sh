@@ -24,7 +24,7 @@ ok()   { PASS=$((PASS+1)); echo "  PASS $1"; }
 bad()  { FAIL=$((FAIL+1)); echo "  FAIL $1"; }
 check(){ if [ -n "$2" ] && [ "$2" = "$3" ]; then ok "$1"; else bad "$1 (nhận '$2', mong đợi '$3')"; fi; }
 HRQ() { docker exec "$(hr_leader)" psql -U "$POSTGRES_HR_USER" -d "$POSTGRES_HR_DB" -tAc "$1"; }
-CEN() { docker exec "$(central_leader)" psql -U "$POSTGRES_CENTRAL_USER" -d "$POSTGRES_CENTRAL_DB" -tAc "$1"; }
+CEN() { dx "$(central_leader)" psql -U "$POSTGRES_CENTRAL_USER" -d "$POSTGRES_CENTRAL_DB" -tAc "$1"; }
 login() { curl -s -m 15 -X POST "$BASE/api/dept/hr/auth/login" -H 'content-type: application/json' -d "{\"username\":\"$1\",\"password\":\"$2\"}" | python -I -X utf8 -c "import sys,json; print(json.load(sys.stdin).get('accessToken',''))"; }
 TM=$(login hr_manager "$DEMO_MANAGER_PASSWORD"); TS=$(login hr_staff "$DEMO_STAFF_PASSWORD")
 [ -n "$TM" ] && [ -n "$TS" ] || { echo "Không đăng nhập được"; exit 2; }

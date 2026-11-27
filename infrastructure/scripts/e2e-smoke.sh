@@ -337,11 +337,11 @@ NEWD=$(curl -s -X POST "$BASE/api/dept/hr/documents" -H "Authorization: Bearer $
 docker start $(central_nodes) >/dev/null
 central_wait 120
 GOT=0; for i in $(seq 1 40); do
-  c=$(docker exec "$(central_leader)" psql -U "$POSTGRES_CENTRAL_USER" -d "$POSTGRES_CENTRAL_DB" -tAc "select count(*) from search_document s join department d using(department_id) where d.dept_code='HR' and s.source_doc_id=$NEWD" 2>/dev/null)
+  c=$(dx "$(central_leader)" psql -U "$POSTGRES_CENTRAL_USER" -d "$POSTGRES_CENTRAL_DB" -tAc "select count(*) from search_document s join department d using(department_id) where d.dept_code='HR' and s.source_doc_id=$NEWD" 2>/dev/null)
   [ "$c" = 1 ] && { GOT=1; break; }; sleep 2; done
 check "trung tâm hồi phục: sự kiện tạo lúc sập về đủ chỉ mục (không bị mất vào DLQ)" "$GOT" 1
 sleep 45
-check "không có sự cố giả (node bị đánh dấu sập oan) do trung tâm sập" "$(docker exec "$(central_leader)" psql -U "$POSTGRES_CENTRAL_USER" -d "$POSTGRES_CENTRAL_DB" -tAc "select count(*) from department_status_event where occurred_at > now() - interval '3 minutes' and to_state='DEGRADED'")" 0
+check "không có sự cố giả (node bị đánh dấu sập oan) do trung tâm sập" "$(dx "$(central_leader)" psql -U "$POSTGRES_CENTRAL_USER" -d "$POSTGRES_CENTRAL_DB" -tAc "select count(*) from department_status_event where occurred_at > now() - interval '3 minutes' and to_state='DEGRADED'")" 0
 settle
 
 echo "== 14. Chống đua khi cấp quyền, lỗi kho tệp (MinIO) và trả kết quả một phần =="

@@ -23,7 +23,7 @@ bad()  { FAIL=$((FAIL+1)); echo "  FAIL $1"; }
 check(){ if [ -n "$2" ] && [ "$2" = "$3" ]; then ok "$1"; else bad "$1 (nhận '$2', mong đợi '$3')"; fi; }
 cleanup() { [ -n "$STOPPED" ] && docker start $STOPPED >/dev/null 2>&1; rm -rf "$TMP"; }
 trap cleanup EXIT
-CEN() { docker exec "$(central_leader)" psql -U "$POSTGRES_CENTRAL_USER" -d "$POSTGRES_CENTRAL_DB" -tAc "$1"; }
+CEN() { dx "$(central_leader)" psql -U "$POSTGRES_CENTRAL_USER" -d "$POSTGRES_CENTRAL_DB" -tAc "$1"; }
 healthy() { [ "$(docker inspect -f '{{.State.Health.Status}}' "$1" 2>/dev/null)" = healthy ]; }
 wait_healthy() { local i; for i in $(seq 1 60); do healthy "$1" && return 0; sleep 2; done; return 1; }
 short_id() { docker inspect -f '{{.Config.Hostname}}' "$1"; }   # HOSTNAME trong container = trường instance của /health
