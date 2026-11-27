@@ -381,6 +381,34 @@ Người dùng yêu cầu "comit và thực hiện tác vụ cho xong toàn bộ
 
 **Sai sót của tôi.** Phép kiểm tệp mồ côi bản đầu đạt mà không chứng minh gì (đã tự phát hiện và thêm ca không có khóa). Hai lượt `partition-test` bị dừng giữa chừng sau khi đã rõ lỗi, để sửa và chạy lại. Sửa `autoscaler-test.sh` trong lúc nó đang chạy (bash đọc tệp dần nên lượt đó lỗi cú pháp giữa chừng); lượt đó không tính, đã chạy lại. Thử `docker update --cpus 0` để gỡ giới hạn CPU nhưng lệnh không gỡ được, một worker bị giới hạn ngoài ý muốn vài phút; đã tạo lại theo cấu hình compose.
 
+### Giai đoạn O: hàng cuối P3, chaos YAML, giao diện, báo cáo (2026-11-27)
+
+**Quyết định.** Người dùng hỏi đã xong hết chưa; tôi liệt kê 6 việc còn lại, người dùng yêu cầu "làm nốt phần này". Về hàng cuối P3, người dùng chốt: "không muốn xóa các cái cũ ... không muốn thay đổi mô hình, chỉ muốn thêm các thành phần cho đầy đủ". Vì vậy làm Redis Sentinel và Keepalived, không làm dọn outbox/audit và chia partition. Người dùng yêu cầu chạy đến khi xong và giữ máy thức.
+
+**Đã làm và đã kiểm chứng.** Chi tiết ở `docs/07` mục 2t, ADR-016.
+- Redis bản sao + 3 Sentinel: `redis-sentinel-test.sh` 22/22, chuyển bản chính sau 13 giây.
+- Keepalived: 2 gateway, 2 bộ cân bằng giữ địa chỉ ảo bên trong mạng: `keepalived-test.sh` 14/14.
+- Chaos YAML: ba kịch bản `.yaml`, `redis-down.yaml` 10/10.
+- Giao diện: danh mục khi tải lên lấy từ CSDL; tải lên có Idempotency-Key đã thử trên trình duyệt.
+- Jaeger và Grafana bật lại, đã kiểm có truy vết và bảng điều khiển.
+- Báo cáo Word cập nhật các mục kiến trúc, triển khai, chịu lỗi, kiểm thử theo hệ thống hiện tại.
+
+**Lỗi thật tìm ra khi kiểm và đã sửa tới gốc.**
+1. Sentinel chuyển bản chính mất 154 đến 284 giây: Sentinel phân giải tên container đồng bộ, tên của bản chính đã chết làm cả Sentinel chậm. Sửa: IP cố định, cấu hình theo IP (18 giây, rồi 13 giây).
+2. Keepalived dạng sidecar dùng chung mạng với nginx không sống lại khi nginx được tạo lại. Sửa: bộ cân bằng riêng có HAProxy và Keepalived.
+3. Lượt bảng điểm `20261127_162233`: e2e báo "Ban Giám đốc không nhận đủ cảnh báo node". Một bản Search Gateway mất Redis vĩnh viễn từ lần chuyển bản chính đầu tiên (chỉ 1 bản nghe `dms:notices`). Gốc: `failoverDetector` của ioredis 5.11 hủy lần kết nối đang diễn ra và client chuyển sang `end`. Bài kiểm Sentinel không bắt được vì chỉ kiểm thu hồi token. Sửa: bỏ `failoverDetector`, thêm `keepRedisAlive()` cho mọi client; bài kiểm Sentinel thêm 3 phép kiểm số bản nghe kênh.
+4. Danh mục tải lên gắn cứng 5 nhãn không khớp mã trong CSDL: chọn một nhãn nhưng lưu thành danh mục khác. Sửa: lấy từ API của phòng.
+5. Mẫu phòng mới (`docker-compose.department.yml`) thiếu hẳn cấu hình Redis. Sửa: thêm cho cả hai bản node.
+6. Sau các lượt kiểm, `keepalived-1` khởi động lại liên tục ("daemon is already running"): script khởi động thoát trước khi keepalived xóa tệp pid, restart policy bật lại trên cùng hệ thống tệp. Bài kiểm `vip` không bắt được vì chỉ bật lại bằng `docker start`. Sửa: xóa tệp pid cũ khi khởi động, chờ keepalived dừng hẳn; thêm ca HAProxy chết vào bài kiểm (19/19, lượt `20261127_200709`).
+
+**Bảng điểm.** Lượt `20261127_162233` (5 mục): `chaos-redis` 10/10, `sentinel` 19/19, `vip` 14/14, `revoke` 18/18; `e2e` hết giờ 2400 giây sau mục 13 (trung tâm bật lại) kèm lỗi 3. Lượt đầy đủ sau khi sửa: xem `docs/14`.
+
+**Lượt đầy đủ `20261127_172120` (sau khi sửa client Redis).** `e2e` 100/0 (Cold 48 ms, Warm 49 ms; cảnh báo node tới Ban Giám đốc đạt), `central` 35/35 (chuyển máy chính 20–22 giây), `kafka` 18/18, `debezium` 7/7, `partition` 19/19 (hội tụ 32 giây). Hai mục hết giờ mà không ra dòng kết quả: `hr` (đứng ở ca 3b) và `replica` (đứng ở vòng chờ tài liệu SALES lên chỉ mục, trong khi tài liệu đã lên chỉ mục ngay khi tạo). Cùng kiểu với lần treo của e2e ở lượt `162233`: một lệnh `docker exec` vào container Patroni không trả về, lúc máy thiếu bộ nhớ. Người dùng yêu cầu tăng tốc; tôi dừng lượt này giữa hai mục, bật lại `dept-sales-2` (bài kiểm bị cắt khi đang dừng bản này), thêm `dx` (docker exec có giới hạn thời gian) cho các truy vấn ngắn trong bài kiểm, rồi chỉ chạy lại các mục liên quan tới mã vừa đổi và hai mục hết giờ. Ở lần chạy lại, bắt được tiến trình treo tại chỗ: lệnh `docker` trong môi trường shell của bài kiểm là một script bọc (thêm một shell và hai tiến trình con rồi mới gọi CLI, không thay thế tiến trình). Đo: 4,7 giây mỗi lệnh qua script bọc, 1,1 giây khi gọi thẳng CLI; khi `timeout` giết shell bọc, CLI con vẫn sống và giữ ống dẫn nên vòng chờ không thoát. Sửa: các bài kiểm gọi thẳng CLI (hàm trong `lib-central.sh`, bảng điểm truyền hàm xuống mọi bài kiểm con). Lượt chạy lại dở dang (`190917`) bị dừng ở ca 4 của `hr` (ca 1 đến 3b đạt); đã dừng bộ ghi nền, bật lại bản sao HR, cụm đồng bộ lại, bộ canh báo `ok`. Các mục không chạm tới thay đổi (`chaos-central`, `chaos-minio`, `approval`, `provenance`, `epoch`, `autoscale`, `restore`) giữ kết quả lượt trước, ghi rõ trong `docs/14`.
+
+**Bảng điểm sau khi sửa.** Lượt `20261127_193334`: 9/9 mục, 181 kiểm tra (`hr` 27/27 trong 315 giây; `sentinel` 22/22, chuyển bản chính 9 giây; `vip` 14/14, gateway sập ngắt dài nhất 8 giây, địa chỉ ảo chuyển sau 4 giây). Lượt `20261127_195115`: 5/5 mục, 53 kiểm tra (các mục đi qua Search Gateway). **Tổng hợp: 21/21 mục, 456 kiểm tra đạt, 0 lỗi** (`docs/14`); `autoscale` và `restore` lấy từ lượt trước vì không đi qua mã đã đổi.
+
+**Sai sót của tôi.** Bản đầu của bài kiểm Sentinel chỉ kiểm thu hồi token, nên đạt trong khi thông báo đã hỏng; e2e mới bắt được. Lượt e2e treo ở bảng điểm `162233` tôi đã đoán là do môi trường mà chưa tìm gốc; tới lần thứ ba mới đối chiếu dữ liệu và xác định đúng chỗ treo.
+
 ---
 
 ## 2. Bảng commit
@@ -457,7 +485,8 @@ Commit cập nhật tài liệu của lượt này: xem `git log` (thông điệ
 
 | Việc | Điều kiện hoặc quyết định cần | Ghi chú |
 |---|---|---|
-| Trang giám sát đọc connector qua nhiều worker | Nhỏ, chưa chốt | CDC không phụ thuộc mục này |
+| ~~Trang giám sát đọc connector qua nhiều worker~~ | Đã làm (giai đoạn N) | `monitoring-test` 15/15 |
+| ~~Báo cáo bài tập lớn (Word) chưa cập nhật kiến trúc mới~~ | Đã cập nhật (giai đoạn O) | Các mục 3.1, 4.2–4.3, 5.2, 5.4, 5.7, 6.2, 7.1, 7.3, 7.6, 7.7, 8, 9.1 theo hệ thống hiện tại; nhóm đọc lại trước khi nộp |
 | ~~Trả 503 kèm `Retry-After` khi giao dịch tạo tài liệu quá hạn~~ | Đã làm (giai đoạn N) | `retry-after-test` 10/10 |
 | Xóa hai máy CSDL trung tâm cũ (profile `central-legacy`) và hai máy CSDL HR cũ (profile `hr-legacy`) | Người dùng yêu cầu riêng | Đang dừng, giữ để quay lui |
 | ~~P2 N2, C2; P3 N6, B4, C3~~ | Đã làm (giai đoạn N) | Số đo ở `07` mục 2s |
@@ -468,8 +497,9 @@ Commit cập nhật tài liệu của lượt này: xem `git log` (thông điệ
 | Dòng `dms.dept.legal.document:0` cũ | Người dùng quyết định xóa | Topic đã không còn trong Kafka |
 | Bí mật trong git (`94b2dc6`, `3a55d19`) | Người dùng chốt xoay khóa; viết lại lịch sử là thao tác phá hủy | Repo hiện không có remote, nên chưa có gì bị đẩy đi |
 | Bản chưa mã hóa trong thùng rác | Người dùng quyết định xóa hẳn hay giữ | Chưa kiểm nội dung thùng rác |
-| PyYAML (nếu muốn chaos bằng YAML thật) | Người dùng chốt cài thêm | Hiện dùng JSON |
-| Jaeger và Grafana đang tạm dừng (giai đoạn J) | Bật lại sau P1/P2 | e2e tự bật Jaeger cho mục 11 rồi dừng lại |
+| ~~Kịch bản chaos bằng YAML~~ | Đã làm (giai đoạn O) | Ba kịch bản `.yaml`; bản JSON giữ nguyên |
+| ~~Jaeger và Grafana đang tạm dừng (giai đoạn J)~~ | Đã bật lại (giai đoạn O) | Jaeger nhận truy vết của 4 dịch vụ; Grafana có 2 bảng điều khiển |
+| Dọn outbox/audit theo thời gian, chia partition | Người dùng chốt không làm: "không muốn xóa các cái cũ ... chỉ muốn thêm các thành phần cho đầy đủ" | Không làm |
 
 ---
 
@@ -509,6 +539,8 @@ Mỗi số có nguồn trong nhật ký phiên làm việc ngày 2026-11-19 và 
 | 26 | 100/0 | Cold 53 ms, Warm 46 ms (CSDL trung tâm trên cụm Patroni) |
 | 27 | 100/0 | Cold 77 ms, Warm 169 ms (sau khi tạo lại hai node Patroni) |
 | 28 | 100/0 | Cold 142 ms, Warm 121 ms; 444 giây (mục đầu của bảng điểm `20261127_001413`: etcd 3 nút, HAProxy 2 bản, CSDL HR trên Patroni, bản 2 ACC/SALES, N6) |
+| 29 | không hợp lệ | Bảng điểm `20261127_162233`: một lỗi thật (Ban Giám đốc không nhận đủ cảnh báo node, client Redis của một bản search dừng hẳn), rồi treo sau mục 13 tới hết giờ 2400 giây |
+| 30 | 100/0 | Cold 48 ms, Warm 49 ms; CDC đồng bộ 1082 ms; 265 giây (bảng điểm `20261127_172120`, sau khi sửa client Redis) |
 
 ---
 

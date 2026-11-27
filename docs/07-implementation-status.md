@@ -122,6 +122,20 @@ Thay đổi giao diện kèm theo: thanh bên, tiêu đề và bảng lệnh Ctr
 | Node sập oan sau khi Registry khởi động lại | Bị đánh dấu `DEGRADED` | Ân hạn 65 giây, 0 sự cố giả |
 | Chuỗi audit khi ghi đồng thời | Báo đứt oan; HR có 1 nhánh rẽ thật | Thứ tự theo `chain_seq` cấp trong khóa; 200 lần ghi đồng thời vẫn nguyên; sửa lén vẫn bị phát hiện |
 
+## 2t. Hàng cuối P3: Redis Sentinel, Keepalived; chaos YAML (2026-11-27)
+
+Phạm vi do người dùng chốt: chỉ thêm thành phần, không xóa dữ liệu cũ, không đổi mô hình (không làm dọn outbox/audit, chia partition). Quyết định và lỗi tìm ra: ADR-016.
+
+| Mục | Nội dung | Kết quả đã kiểm chứng |
+|---|---|---|
+| Redis | `redis` (giữ volume cũ) + `redis-2` bản sao + 3 Sentinel, quorum 2, theo IP cố định; script khởi động hỏi Sentinel bản chính trước khi chạy. Mọi client dùng `redisConnectionOptions()` và `keepRedisAlive()` | `redis-sentinel-test.sh` 22/22: kill bản chính, chuyển sau 9 đến 18 giây qua các lượt; thu hồi token ghi và đọc trên bản chính mới; cả hai bản Search Gateway nghe lại `dms:notices`; bản cũ vào làm bản sao; chuyển ngược có kế hoạch |
+| Lỗi client Redis | `failoverDetector` của ioredis làm một bản Search Gateway mất Redis vĩnh viễn sau lần chuyển đầu (e2e: Ban Giám đốc không nhận đủ cảnh báo node) | Bỏ `failoverDetector`, thêm lớp giữ sống; sau khi triển khai: 2/2 bản nghe kênh trước, trong và sau hai lần chuyển |
+| Gateway | `nginx-2` + `keepalived-1`, `keepalived-2` (HAProxy + Keepalived, VRRP unicast) giữ địa chỉ ảo `172.28.255.10` bên trong mạng; cổng 8000 ra ngoài giữ nguyên | `keepalived-test.sh` 19/19: một gateway sập, khoảng ngắt dài nhất 2 đến 9 giây; bộ cân bằng giữ địa chỉ sập, địa chỉ chuyển sau 4 đến 6 giây, khoảng ngắt 4 đến 5 giây; HAProxy trong bộ cân bằng chết thì container tự khởi động lại và khỏe lại (sửa lỗi kẹt vòng khởi động lại do tệp pid cũ) |
+| Chaos YAML | `run_scenario.py` đọc `.yaml` (PyYAML) hoặc `.json`; bước tìm kiếm có `within` (chờ hồi phục trong giới hạn). Thêm `redis-down.yaml` | `central-down.yaml`, `minio-hr-down.yaml` khớp bản JSON; `redis-down.yaml` 10/10 |
+| Danh mục khi tải lên | Giao diện lấy danh mục từ CSDL của phòng (`GET /api/dept/<code>/categories`) thay cho danh sách gắn cứng không khớp mã | Đã thử trên trình duyệt: 4 danh mục đúng tên và mã |
+| Mẫu phòng mới | `docker-compose.department.yml` có cấu hình Redis và Sentinel cho cả hai bản node (trước đây thiếu hẳn) | Hai bản node SALES chạy trên mẫu này và nhận đủ cấu hình Sentinel |
+| Quan sát | Bật lại Jaeger và Grafana | Jaeger nhận truy vết của `dept-acc`, `dept-hr`, `dept-sales`, Search Gateway; Grafana có 2 bảng điều khiển |
+
 ## 2s. Bỏ điểm chết etcd và HAProxy, P2 N2, P3 (2026-11-26, chưa commit)
 
 | Mục | Nội dung | Kết quả đã kiểm chứng |
@@ -138,14 +152,14 @@ Thay đổi giao diện kèm theo: thanh bên, tiêu đề và bảng lệnh Ctr
 | N2: đứt mạng HR với cụm Patroni | `partition-test.sh` (19 kiểm tra, thêm 2 kiểm tra failsafe) | Lượt 3 và 4: 19/19. Mất etcd quá ttl: vẫn đúng một máy chính, vẫn ghi được; 4/4 tài liệu và chia sẻ hội tụ; sự kiện cũ không ghi đè. Hội tụ sau khi nối lại: 75 giây (lượt 3), 57 giây (lượt 4, sau khi watchdog khởi động lại task khi slot không có ai đọc 30 giây) |
 | Debezium bỏ socket chết nhanh | `net.ipv4.tcp_retries2=5` cho hai worker | Hội tụ sau đứt mạng 17–46 giây ở hai lượt bảng điểm (trước đó 57–75 giây) |
 | Giám sát etcd và Patroni | Prometheus thu `etcd_disk_wal_fsync_duration_seconds`, `etcd_server_has_leader`, `patroni_primary`; cảnh báo `EtcdSlowDisk`, `EtcdNoLeader`, `PatroniNoPrimary` | 3 nút etcd và 4 node Patroni `up`; 6 luật nạp được. Lý do: một lần chuyển máy chính mất 46 giây vì etcd ghi đĩa chậm 1,4–4,7 giây |
-| C3: bảng điểm nghiệm thu | `acceptance-scorecard.sh`: 18 bộ kiểm, gom điểm và số đo | 18/18 mục, 405 kiểm tra đạt, 0 lỗi (`docs/14`) |
+| C3: bảng điểm nghiệm thu | `acceptance-scorecard.sh`: 21 bộ kiểm (thêm `chaos-redis`, `sentinel`, `vip` ở giai đoạn O), gom điểm và số đo | 21/21 mục, 456 kiểm tra đạt, 0 lỗi (`docs/14`) |
 | N6: Idempotency-Key | Bảng `idempotency_key` trên CSDL mỗi phòng; khóa gắn với người dùng, giữ 24 giờ; DONE ghi cùng transaction với tài liệu | `idempotency-test.sh` 23/23: gửi lại cùng docId; khác nội dung 422; 8 yêu cầu đồng thời ra đúng 1 tài liệu (409 + Retry-After, hoặc 429 của gateway); chỉ mục trung tâm không nhân đôi |
 | 503 thay cho 500 | Lỗi CSDL tạm thời (P1001, P2024, P2028...) trả 503 + `Retry-After: 2`; CSDL lỗi sau khi tải tệp thì dọn tệp trong MinIO | `retry-after-test.sh` 10/10: 503 có và không có khóa; log dọn tệp 1 lần, MinIO không thêm tệp; thử lại cùng khóa ra đúng 1 tài liệu |
 | B4: 2 bản node ACC, SALES | `dept-acc-2`, `dept-sales-2` cùng alias; mẫu phòng mới có sẵn bản 2; e2e dừng mọi bản khi giả lập phòng sập | `node-replica-test.sh acc sales` 28/28: gateway chia cho cả hai bản; một bản dừng, đăng nhập, xem, tạo tài liệu vẫn được và lên chỉ mục trung tâm |
 | Giám sát | Trang hệ thống hỏi lần lượt từng worker Debezium; thêm cụm Patroni và etcd | `monitoring-test.sh` 15/15: worker 1 dừng vẫn đọc được 3 connector; etcd 2/3 báo warn; bản sao HR dừng báo warn và đúng máy chính |
 | C2: tự co giãn content-worker | `content-autoscaler.sh` chạy ở máy chủ (không mount docker.sock): đọc lag nhóm `content-indexer` từ Prometheus; 1–3 bản (không quá số partition); thêm khi lag ≥ 10 hai lần đọc, bớt khi lag 0 đủ lâu, đưa về tối thiểu khi mọi bản chết; Prometheus không trả lời thì giữ nguyên; lỗi lệnh đổi số bản ghi `action=error` | `autoscaler-test.sh` lượt 2: 16/16. Worker quá tải (giới hạn CPU), lag 31: thêm bản sau 32 giây, lag về 0 sau 83 giây, 30/30 tài liệu lên chỉ mục; bớt về 1 bản sau 20 giây; mọi bản chết: khôi phục sau 13 giây. Lượt 1 lộ lỗi bộ co giãn giấu lỗi của lệnh scale (đã sửa) |
 | Watchdog Debezium | Ngoài task FAILED, còn khởi động lại task khi node báo slot không có ai đọc 30 giây | `partition-test` lượt 4: hội tụ 57 giây (lượt 3 là 75 giây) |
-| Tải lên từ giao diện | Nút tải lên gửi `Idempotency-Key` (một khóa cho một nội dung; sửa nội dung thì khóa mới) | Kiểm kiểu đạt; chưa thử trên trình duyệt |
+| Tải lên từ giao diện | Nút tải lên gửi `Idempotency-Key` (một khóa cho một nội dung; sửa nội dung thì khóa mới) | Đã thử trên trình duyệt (giai đoạn O): tài liệu tạo ra có khóa ở trạng thái DONE trong CSDL của phòng |
 
 ## 2r. P1 B2: CSDL trung tâm tự chuyển máy chính (2026-11-26, chưa commit)
 

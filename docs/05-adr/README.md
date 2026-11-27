@@ -19,3 +19,4 @@ Mỗi ADR theo định dạng: **Bối cảnh → Quyết định → Phương �
 | [ADR-013](ADR-013-token-revocation.md) | Thu hồi token ngay lập tức ở gateway (token_version + khóa Redis) | Accepted |
 | [ADR-014](ADR-014-central-patroni-synchronous.md) | CSDL trung tâm dùng Patroni, ghi đồng bộ không chặn | Accepted |
 | [ADR-015](ADR-015-dept-patroni-logical-slot.md) | CSDL phòng ban trên Patroni, slot Debezium đi theo máy chính (bộ canh slot, nhịp tim) | Accepted |
+| [ADR-016](ADR-016-redis-sentinel-and-gateway-vip.md) | Redis có bản sao và Sentinel; gateway có địa chỉ ảo (Keepalived) | Accepted |

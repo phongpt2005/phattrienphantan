@@ -12,14 +12,6 @@ interface UploadModalProps {
   onSuccess: () => void;
 }
 
-const CATEGORIES: Array<{ id: string; label: string }> = [
-  { id: '1', label: 'Hồ sơ chung và quyết định' },
-  { id: '2', label: 'Hợp đồng và văn bản thỏa thuận' },
-  { id: '3', label: 'Báo cáo tài chính và quyết toán' },
-  { id: '4', label: 'Hóa đơn và chứng từ thanh toán' },
-  { id: '5', label: 'Chính sách và quy định nội bộ' },
-];
-
 /** Khóa ngẫu nhiên 128 bit dạng hex. Không dùng crypto.randomUUID: hàm này chỉ có khi trang chạy trong ngữ cảnh an toàn (HTTPS). */
 function newIdempotencyKey(): string {
   const b = new Uint8Array(16);
@@ -33,7 +25,27 @@ export const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose, onSuc
   const toast = useToast();
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
-  const [categoryId, setCategoryId] = useState('1');
+  const [categoryId, setCategoryId] = useState('');
+  // Danh mục lấy từ CSDL của phòng (trước đây gắn cứng 5 nhãn không khớp mã trong CSDL: chọn một nhãn nhưng lưu
+  // thành danh mục khác, và có mã không tồn tại)
+  const [categories, setCategories] = useState<Array<{ categoryId: number; name: string }>>([]);
+  const [categoryError, setCategoryError] = useState(false);
+  useEffect(() => {
+    if (!isOpen || !user?.departmentCode) return;
+    let alive = true;
+    documentApi
+      .getCategories(user.departmentCode)
+      .then((list) => {
+        if (!alive) return;
+        setCategories(list);
+        setCategoryError(false);
+        setCategoryId((cur) => (cur && list.some((c) => String(c.categoryId) === cur) ? cur : list[0] ? String(list[0].categoryId) : ''));
+      })
+      .catch(() => alive && setCategoryError(true));
+    return () => {
+      alive = false;
+    };
+  }, [isOpen, user?.departmentCode]);
   const [accessLevel, setAccessLevel] = useState<'DEPARTMENT' | 'COMPANY' | 'CONFIDENTIAL'>('DEPARTMENT');
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -67,7 +79,7 @@ export const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose, onSuc
     const formData = new FormData();
     formData.append('title', title.trim());
     formData.append('description', description.trim());
-    formData.append('categoryId', categoryId);
+    if (categoryId) formData.append('categoryId', categoryId);
     formData.append('accessLevel', accessLevel);
     formData.append('file', selectedFile);
 
@@ -120,10 +132,17 @@ export const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose, onSuc
 
         <div className="grid grid-cols-2 gap-3">
           <Field label="Danh mục nghiệp vụ" htmlFor="upload-category">
-            <select id="upload-category" value={categoryId} onChange={(e) => setCategoryId(e.target.value)} className={`${SELECT} w-full`}>
-              {CATEGORIES.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.label}
+            <select
+              id="upload-category"
+              value={categoryId}
+              onChange={(e) => setCategoryId(e.target.value)}
+              disabled={categories.length === 0}
+              className={`${SELECT} w-full`}
+            >
+              {categories.length === 0 && <option value="">{categoryError ? 'Không tải được danh mục' : 'Đang tải danh mục...'}</option>}
+              {categories.map((c) => (
+                <option key={c.categoryId} value={String(c.categoryId)}>
+                  {c.name}
                 </option>
               ))}
             </select>

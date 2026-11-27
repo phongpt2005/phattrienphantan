@@ -117,6 +117,12 @@ export const documentApi = {
     return res.data;
   },
 
+  /** Danh mục nghiệp vụ của phòng (bảng category của node), để chọn khi tải lên. */
+  getCategories: async (dept: string): Promise<Array<{ categoryId: number; name: string }>> => {
+    const res = await apiClient.get(`${deptBase(dept)}/categories`);
+    return res.data;
+  },
+
   /**
    * idempotencyKey: cùng khóa cho các lần gửi lại của CÙNG một lần tải lên (bấm hai lần, mạng chập chờn rồi gửi lại).
    * Server trả lại đúng tài liệu đã tạo, không tạo tài liệu thứ hai (P3 N6).

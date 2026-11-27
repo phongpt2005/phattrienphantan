@@ -121,6 +121,8 @@ Nguyên tắc sắp xếp: rẻ và giá trị cao làm trước; thứ gì phá
 - N2 không "tạo lại slot + resync" sau mỗi lần chuyển máy chính, mà để slot đi theo máy chính (slot cố định của Patroni, bộ canh slot, nhịp tim Debezium; ADR-015). Tạo lại slot luôn bỏ qua một khoảng sự kiện, phải phát lại cả phòng.
 - C3 được làm rõ thành bảng điểm nghiệm thu (`acceptance-scorecard.sh`): chạy mọi bộ kiểm và gom điểm.
 
+**Hàng cuối của P3 (2026-11-27).** Người dùng chốt chỉ thêm thành phần, không xóa dữ liệu cũ và không đổi mô hình. Đã làm Redis bản sao + 3 Sentinel và Keepalived (2 gateway, 2 bộ cân bằng giữ địa chỉ ảo bên trong mạng); không làm dọn outbox/audit và chia partition. C1 có thêm kịch bản YAML. Chi tiết: ADR-016, `docs/07` mục 2t.
+
 ---
 
 ## 6. Ma trận sự cố → phương án

@@ -50,6 +50,7 @@ Mỗi bài học có: vì sao quan trọng, và áp dụng khi nào.
 16. **"Có" chưa phải "dùng được".** Vì sao: Patroni báo slot logic trên bản sao "safe", nhưng bản chép thiếu WAL; chỉ lộ khi chuyển máy chính thật (2026-11-26). Áp dụng: kiểm điều kiện dùng được (đủ WAL, đang tiến), không chỉ kiểm sự tồn tại.
 17. **Mô phỏng sự cố phải giống sự cố thật.** Vì sao: `docker pause` làm `compose --scale` từ chối, khác hẳn worker quá tải thật; giới hạn CPU mới giống. Áp dụng: chọn cách gây lỗi theo tình huống thật cần chứng minh.
 18. **Đứt mạng làm lộ lỗi phụ thuộc ẩn.** Vì sao: một lần chạy đứt mạng lộ ba lỗi (DNS chọn mạng chung, luồng phân giải tên Node.js bị chiếm, socket Debezium treo). Áp dụng: sau mọi thay đổi đường kết nối của một site, chạy `partition-test.sh`.
+19. **Kiểm mọi bên dùng thành phần, không chỉ một đường.** Vì sao: bài kiểm Redis Sentinel lượt đầu 19/19 vì chỉ kiểm thu hồi token, trong khi một bản Search Gateway đã mất Redis vĩnh viễn và thông báo không tới (2026-11-27, e2e bắt được). Áp dụng: khi thêm dự phòng cho một thành phần dùng chung, liệt kê mọi client (ở đây: thu hồi token ở node và gateway, cache, pub/sub của từng bản) và kiểm từng client sau sự cố.
 
 ## 4. Sai lầm đã mắc và cách tránh
 
@@ -90,3 +91,4 @@ Ví dụ khác: sửa một lỗi kiểm thử.
 - **P1 N3** (đối soát tự động): có thể thiết kế và kiểm trên hạ tầng hiện có. Chưa bắt đầu.
 - **P2**: N2 (Patroni HR) cần B2 xong và quyết định PostgreSQL 16 hay 17 (`docs/10` mục 7 câu 4). C1 (chaos), C2 (autoscaler, đã có N7).
 - **P3**: N4, N6, B4, C3 và các mục chỉ làm khi có số đo.
+- *Cập nhật 2026-11-27:* P0 đến P3 đã làm. Hàng cuối P3: Redis Sentinel và Keepalived đã thêm; dọn outbox/audit và chia partition không làm theo chốt của người dùng (chỉ thêm thành phần, không xóa dữ liệu cũ). Hiện trạng chi tiết: `docs/07` mục 2s, 2t; bảng điểm: `docs/14`.

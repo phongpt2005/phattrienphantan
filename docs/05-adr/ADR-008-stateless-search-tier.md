@@ -29,4 +29,4 @@ Search Gateway (kèm Registry, Index Projector, Share) là thành phần mọi p
 - (+) Cập nhật không gián đoạn: thay từng bản một.
 - (−) Circuit breaker và cache Registry (5 giây) là riêng từng bản; mỗi bản tự phát hiện node hỏng.
 - (−) Mất Redis: thông báo lùi về phát trong từng bản (người nối vào bản khác sẽ không nhận được) cho tới khi Redis trở lại.
-- (−) Redis và Kafka vẫn chạy một bản trên Compose: chúng là điểm chết còn lại, cần Redis Sentinel và Kafka 3 broker ở môi trường thật.
+- (−) Redis và Kafka vẫn chạy một bản trên Compose: chúng là điểm chết còn lại, cần Redis Sentinel và Kafka 3 broker ở môi trường thật. *Cập nhật: Kafka 3 broker từ P1 B1; Redis có bản sao và 3 Sentinel từ P3 (ADR-016).*
