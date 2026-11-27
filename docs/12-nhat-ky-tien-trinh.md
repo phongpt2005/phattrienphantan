@@ -407,6 +407,9 @@ Thứ tự theo git. Ngày lấy từ git.
 | `4714c88` | 2026-11-20 | Tài liệu: nhật ký và rà soát số liệu |
 | `b6846ff` | 2026-11-24 | P1 B1 bản gọn: cụm Kafka 3 broker KRaft, RF 3, log trên volume; kafka-failover-test |
 | `cba9e2f` | 2026-11-24 | Tài liệu: nhật ký giải phóng bộ nhớ và B1; bỏ thông tin hạ tầng cá nhân |
+| `df8c391` | 2026-11-27 | P1 B2, etcd 3 nút và HAProxy 2 bản, P2 N2 và C2, P3 N6, B4, C3; giám sát etcd/Patroni. Bảng điểm 18/18 |
+| `1a03b04` | 2026-11-27 | Giao diện doanh nghiệp theo AGENTS.md, gỡ Astryx; tải lên gửi Idempotency-Key |
+| `b671344` | 2026-11-27 | Tài liệu: ADR-014/015, giai đoạn M–N, bảng điểm nghiệm thu (`14`), đề xuất 3 máy (`13`) |
 
 Commit cập nhật tài liệu của lượt này: xem `git log` (thông điệp bắt đầu bằng `docs:`).
 
