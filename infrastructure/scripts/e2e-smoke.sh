@@ -9,13 +9,17 @@
 set -uo pipefail
 cd "$(dirname "$0")/../.."
 set -a; . ./.env; set +a
+. infrastructure/scripts/lib-central.sh
 BASE="${BASE:-http://localhost:${NGINX_HTTP_PORT:-8000}}"
 # --- Lớp trừu tượng theo môi trường chạy
 node_internal_code() {  # gọi /internal/search KHÔNG kèm service token từ bên trong node, in mã HTTP
   docker exec dept-hr curl -s -o /dev/null -w '%{http_code}' -X POST -H 'content-type: application/json' -d '{"q":"a","viewer":{"deptCode":"HR"}}' http://127.0.0.1:3000/internal/search
 }
-stop_node()  { docker stop dept-$1 >/dev/null; }
-start_node() { docker start dept-$1 >/dev/null; }
+# Mỗi phòng có thể có nhiều bản (dept-<code>, dept-<code>-2; P3 B4) cùng alias: "phòng sập" là dừng MỌI bản
+node_instances() { docker ps -a --format '{{.Names}}' | grep -E "^dept-$1(-[0-9]+)?\$"; }
+stop_node()  { docker stop $(node_instances "$1") >/dev/null; }
+start_node() { docker start $(node_instances "$1") >/dev/null; }
+wait_node()  { local c i; for c in $(node_instances "$1"); do for i in $(seq 1 40); do [ "$(docker inspect -f '{{.State.Health.Status}}' "$c")" = healthy ] && break; sleep 2; done; done; }
 PASS=0; FAIL=0
 
 # SETTLE & DRAIN: sau mỗi bài tắt/bật hạ tầng, chờ > TTL cache Registry (5 giây) để Circuit Breaker đổi trạng thái và cache
@@ -202,7 +206,8 @@ docker stop "$VICTIM" >/dev/null
 FAILS=0; for i in $(seq 1 8); do [ "$(http -H "Authorization: Bearer $HR_MGR" "$BASE/api/search?q=hop%20dong&limit=$i")" = 200 ] || FAILS=$((FAILS+1)); done
 check "tắt 1 bản Search Gateway: 8/8 truy vấn vẫn thành công" "$FAILS" 0
 docker start "$VICTIM" >/dev/null
-docker compose up -d --no-build --scale content-worker=2 >/dev/null 2>&1
+# Chỉ co giãn content-worker: không chỉ định service thì compose bật lại MỌI service đang được dừng có chủ đích
+docker compose up -d --no-build --no-deps --scale content-worker=2 content-worker >/dev/null 2>&1
 PARTS=""
 for i in $(seq 1 30); do
   PARTS=$(curl -s --get http://127.0.0.1:9090/api/v1/query --data-urlencode 'query=dms_content_assigned_partitions' | python -I -c "import sys,json; print(','.join(sorted(r['value'][1] for r in json.load(sys.stdin)['data']['result'])))")
@@ -212,6 +217,12 @@ case "$PARTS" in *,*) echo "$PARTS" | grep -q '^0' && bad "consumer group chưa 
 settle
 
 echo "== 11. Distributed tracing (OpenTelemetry -> Jaeger) =="
+# Jaeger có thể đang tạm dừng để tiết kiệm bộ nhớ: bật tạm cho mục này, cuối script trả về trạng thái cũ
+JAEGER_TAM=0
+if [ "$(docker inspect -f '{{.State.Running}}' jaeger 2>/dev/null)" != "true" ]; then
+  docker start jaeger >/dev/null 2>&1 && JAEGER_TAM=1
+  for i in $(seq 1 20); do [ "$(http http://127.0.0.1:16686/)" = 200 ] && break; sleep 1; done
+fi
 # Span được xuất theo lô 5 giây ở từng service: chờ qua một chu kỳ xuất (tương đương forceFlush) trước khi tra Jaeger
 settle
 R=$(search "$HR_MGR" "truy vet $(date +%s)")
@@ -277,7 +288,7 @@ curl -s -o /dev/null -H "Authorization: Bearer $ACC_STAFF" "$BASE/api/search/doc
 for w in 1 2 3; do search "$HR_MGR" "warmup $w" >/dev/null; done
 search "$HR_MGR" "hop dong" --data-urlencode "limit=98" >/dev/null   # nạp bản chụp danh bạ và quyền chia sẻ (limit khác để không dùng cache kết quả)
 BASE_N=$(search "$HR_MGR" "hop dong" --data-urlencode "limit=97" | jget total)
-docker stop postgres-central-primary postgres-central-replica >/dev/null
+docker stop $(central_nodes) >/dev/null
 sleep 6   # > 5 giây: danh bạ trong bộ nhớ (cache ngắn của Registry) đã hết hạn nên phải thử nguồn gốc và nhận lỗi
 CODE=$(curl -s -o "$WTMP/c13.json" -w '%{http_code}' -H "Authorization: Bearer $HR_MGR" --get "$BASE/api/search" --data-urlencode "q=hop dong" --data-urlencode "limit=96")
 check "tắt CSDL trung tâm: tìm kiếm vẫn trả HTTP 200 (trước đây: 502, cả 2 bản Gateway sập)" "$CODE" 200
@@ -323,14 +334,14 @@ EVT="trungtamsap$(date +%s)"
 printf 'Ghi luc trung tam sap %s\n' "$EVT" > "$WTMP/c13.txt"
 NEWD=$(curl -s -X POST "$BASE/api/dept/hr/documents" -H "Authorization: Bearer $HR_MGR" -F "title=Tai lieu $EVT" -F "description=kiem thu outbox" -F "accessLevel=DEPARTMENT" -F "file=@$WTMP/c13.txt;type=text/plain" | jget docId)
 [ -n "$NEWD" ] && ok "node vẫn ghi tài liệu mới khi trung tâm sập (#$NEWD)" || bad "node không ghi được tài liệu khi trung tâm sập"
-docker start postgres-central-primary postgres-central-replica >/dev/null
-for i in $(seq 1 40); do [ "$(docker inspect -f '{{.State.Health.Status}}' postgres-central-primary)" = healthy ] && break; sleep 2; done
+docker start $(central_nodes) >/dev/null
+central_wait 120
 GOT=0; for i in $(seq 1 40); do
-  c=$(docker exec postgres-central-primary psql -U "$POSTGRES_CENTRAL_USER" -d "$POSTGRES_CENTRAL_DB" -tAc "select count(*) from search_document s join department d using(department_id) where d.dept_code='HR' and s.source_doc_id=$NEWD" 2>/dev/null)
+  c=$(docker exec "$(central_leader)" psql -U "$POSTGRES_CENTRAL_USER" -d "$POSTGRES_CENTRAL_DB" -tAc "select count(*) from search_document s join department d using(department_id) where d.dept_code='HR' and s.source_doc_id=$NEWD" 2>/dev/null)
   [ "$c" = 1 ] && { GOT=1; break; }; sleep 2; done
 check "trung tâm hồi phục: sự kiện tạo lúc sập về đủ chỉ mục (không bị mất vào DLQ)" "$GOT" 1
 sleep 45
-check "không có sự cố giả (node bị đánh dấu sập oan) do trung tâm sập" "$(docker exec postgres-central-primary psql -U "$POSTGRES_CENTRAL_USER" -d "$POSTGRES_CENTRAL_DB" -tAc "select count(*) from department_status_event where occurred_at > now() - interval '3 minutes' and to_state='DEGRADED'")" 0
+check "không có sự cố giả (node bị đánh dấu sập oan) do trung tâm sập" "$(docker exec "$(central_leader)" psql -U "$POSTGRES_CENTRAL_USER" -d "$POSTGRES_CENTRAL_DB" -tAc "select count(*) from department_status_event where occurred_at > now() - interval '3 minutes' and to_state='DEGRADED'")" 0
 settle
 
 echo "== 14. Chống đua khi cấp quyền, lỗi kho tệp (MinIO) và trả kết quả một phần =="
@@ -340,8 +351,8 @@ for i in 1 2 3 4 5 6 7 8; do
 done
 wait
 check "8 yêu cầu cấp quyền đồng thời: không có lỗi 5xx" "$(cat $WTMP/race*.http | grep -c '^5')" 0
-check "8 yêu cầu đồng thời: CSDL chỉ có 1 lượt chia sẻ đang hiệu lực" "$(docker exec postgres-hr-primary psql -U "$POSTGRES_HR_USER" -d "$POSTGRES_HR_DB" -tAc "select count(*) from document_share where doc_id=$DOC_ID and shared_with_dept='ACC' and not is_revoked" | tr -d '[:space:]')" 1
-check "chèn thẳng dòng thứ hai bị CSDL từ chối (chỉ mục duy nhất)" "$(docker exec postgres-hr-primary psql -U "$POSTGRES_HR_USER" -d "$POSTGRES_HR_DB" -tAc "insert into document_share(doc_id,shared_with_dept,permission) values ($DOC_ID,'ACC','VIEW')" 2>&1 | grep -c 'idx_unique_active_share')" 1
+check "8 yêu cầu đồng thời: CSDL chỉ có 1 lượt chia sẻ đang hiệu lực" "$(docker exec "$(hr_leader)" psql -U "$POSTGRES_HR_USER" -d "$POSTGRES_HR_DB" -tAc "select count(*) from document_share where doc_id=$DOC_ID and shared_with_dept='ACC' and not is_revoked" | tr -d '[:space:]')" 1
+check "chèn thẳng dòng thứ hai bị CSDL từ chối (chỉ mục duy nhất)" "$(docker exec "$(hr_leader)" psql -U "$POSTGRES_HR_USER" -d "$POSTGRES_HR_DB" -tAc "insert into document_share(doc_id,shared_with_dept,permission) values ($DOC_ID,'ACC','VIEW')" 2>&1 | grep -c 'idx_unique_active_share')" 1
 # Phân biệt cấp mới / gia hạn trong phản hồi
 check "cấp lại cho phòng đã có quyền: action=EXTENDED (đổi quyền + gia hạn, không nhân dòng)" "$(curl -s -X POST $BASE/api/dept/hr/shares -H "Authorization: Bearer $HR_MGR" -H 'content-type: application/json' -d "{\"docId\":$DOC_ID,\"sharedWithDept\":\"ACC\",\"permission\":\"VIEW\",\"expiresInDays\":2}" | jget action)" EXTENDED
 for sid in $(curl -s $BASE/api/dept/hr/shares -H "Authorization: Bearer $HR_MGR" | python -I -c "import json,sys; print(' '.join(str(x['share_id']) for x in json.load(sys.stdin) if str(x['source_doc_id'])=='$DOC_ID'))"); do curl -s -X DELETE $BASE/api/dept/hr/shares/$sid -H "Authorization: Bearer $HR_MGR" >/dev/null; done
@@ -360,12 +371,12 @@ check "MinIO hồi phục: tải lại được, đúng SHA-256" "$(python -I -c
 # 14.3 KẾT QUẢ MỘT PHẦN: node SALES sập -> "được chia sẻ với tôi" vẫn trả phần còn lại, nói rõ node nào thiếu
 OK_PART=$(curl -s -H "Authorization: Bearer $ACC_STAFF" $BASE/api/search/shares/shared-with-me | python -I -c "import json,sys;d=json.load(sys.stdin);print(d['isPartial'],d['unavailableNodes'])")
 check "mọi node sống: isPartial=False, không thiếu node" "$OK_PART" "False []"
-docker stop dept-sales >/dev/null
+stop_node sales
 sleep 3
 PART=$(curl -s -H "Authorization: Bearer $ACC_STAFF" $BASE/api/search/shares/shared-with-me | python -I -c "import json,sys;d=json.load(sys.stdin);print(d['isPartial'],'SALES' in d['unavailableNodes'],len(d['shares'])>0)")
 check "SALES sập: isPartial=True, unavailableNodes có SALES, vẫn trả tài liệu của HR" "$PART" "True True True"
-docker start dept-sales >/dev/null
-for i in $(seq 1 40); do [ "$(docker inspect -f '{{.State.Health.Status}}' dept-sales)" = healthy ] && break; sleep 2; done
+start_node sales
+wait_node sales
 for i in $(seq 1 30); do [ "$(curl -s -H "Authorization: Bearer $ACC_STAFF" $BASE/api/search/shares/shared-with-me | jget isPartial)" = false ] && break; sleep 2; done
 check "SALES hồi phục: isPartial trở lại False" "$(curl -s -H "Authorization: Bearer $ACC_STAFF" $BASE/api/search/shares/shared-with-me | jget isPartial)" false
 # dọn
@@ -381,7 +392,7 @@ SCODE=$(curl -s -o "$WTMP/sales_doc.json" -w '%{http_code}' -X POST "$BASE/api/d
 check "tạo tài liệu tại node SALES (HTTP $SCODE)" "$SCODE" 201
 SN=0
 for i in $(seq 1 30); do
-  SN=$(docker exec postgres-central-primary psql -U "$POSTGRES_CENTRAL_USER" -d "$POSTGRES_CENTRAL_DB" -tAc "select count(*) from search_document s join department d using(department_id) where d.dept_code='SALES' and s.title='$SALES_TITLE'" 2>/dev/null | tr -d '[:space:]')
+  SN=$(docker exec "$(central_leader)" psql -U "$POSTGRES_CENTRAL_USER" -d "$POSTGRES_CENTRAL_DB" -tAc "select count(*) from search_document s join department d using(department_id) where d.dept_code='SALES' and s.title='$SALES_TITLE'" 2>/dev/null | tr -d '[:space:]')
   [ "$SN" = 1 ] && break
   sleep 1
 done
@@ -389,5 +400,6 @@ check "CDC SALES: tài liệu có trong CHỈ MỤC TRUNG TÂM trong 30 giây (k
 check "tìm liên phòng qua API Gateway thấy tài liệu SALES" "$(search "$SALES_STAFF" "$SALES_TITLE" | jget total)" 1
 
 rm -rf "$TMP"
+[ "${JAEGER_TAM:-0}" = 1 ] && docker stop jaeger >/dev/null 2>&1   # trả Jaeger về trạng thái dừng như trước e2e
 echo; echo "===== KẾT QUẢ: $PASS đạt, $FAIL lỗi ====="
 [ "$FAIL" -eq 0 ]

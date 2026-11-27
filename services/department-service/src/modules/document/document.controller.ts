@@ -14,6 +14,9 @@ import {
   UploadedFile,
   ParseIntPipe,
   ValidationPipe,
+  Headers,
+  ConflictException,
+  ServiceUnavailableException,
 } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { FileInterceptor } from '@nestjs/platform-express';
@@ -35,11 +38,24 @@ export class DocumentController {
     @Body(new ValidationPipe({ transform: true })) dto: CreateDocumentDto,
     @UploadedFile() file: Express.Multer.File,
     @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
+    @Headers('idempotency-key') idemKey?: string,
   ) {
     const user = req.user as AuthenticatedUser;
     dto.userId = user.userId;
     const ipAddress = req.ip || req.socket.remoteAddress;
-    return this.documentService.create(dto, file, ipAddress, user.role);
+    try {
+      if (idemKey !== undefined) {
+        const r = await this.documentService.createIdempotent(dto, file, ipAddress, user.role, idemKey);
+        if (r.replayed) res.setHeader('Idempotent-Replayed', 'true');
+        return r.body;
+      }
+      return await this.documentService.create(dto, file, ipAddress, user.role);
+    } catch (e) {
+      // 409 (khóa đang xử lý) và 503 (CSDL tạm thời lỗi) là lỗi thử lại được: báo client chờ bao lâu
+      if (e instanceof ConflictException || e instanceof ServiceUnavailableException) res.setHeader('Retry-After', '2');
+      throw e;
+    }
   }
 
   @Post(':id/approve')

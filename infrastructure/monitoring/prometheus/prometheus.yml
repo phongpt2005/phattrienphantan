@@ -40,6 +40,21 @@ scrape_configs:
       - target_label: service
         replacement: content-worker
 
+  # Cụm etcd của Patroni: độ trễ ghi đĩa (etcd_disk_wal_fsync_duration_seconds) quyết định tốc độ chuyển máy chính.
+  # Đo 2026-11-27: đĩa dùng chung bị nghẽn, fdatasync 1,4-4,7 giây, một lần chuyển máy chính mất 46 giây.
+  - job_name: 'etcd'
+    static_configs:
+      - targets: ['central-etcd:2379', 'central-etcd-2:2379', 'central-etcd-3:2379']
+        labels:
+          service: etcd
+
+  # Patroni: vai trò từng node (patroni_primary), để cảnh báo khi một cụm không có máy chính
+  - job_name: 'patroni'
+    static_configs:
+      - targets: ['central-pg-1:8008', 'central-pg-2:8008', 'hr-pg-1:8008', 'hr-pg-2:8008']
+        labels:
+          service: patroni
+
   # Mọi node phòng ban: Prometheus tự nạp lại file trong targets/ (file_sd).
   # Thêm phòng ban mới = scripts/add-department.sh ghi thêm 1 file <code>.json, không sửa file này.
   - job_name: 'dms-departments'

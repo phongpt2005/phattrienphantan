@@ -1,0 +1,5 @@
+# P1 B2: etcd và HAProxy từ kho gói Alpine (dùng lại nền image đã có, không phải kéo thêm image ngoài).
+FROM postgres:16-alpine
+RUN apk add --no-cache etcd etcd-ctl haproxy
+COPY infrastructure/haproxy/central.cfg /etc/haproxy/central.cfg
+ENTRYPOINT []

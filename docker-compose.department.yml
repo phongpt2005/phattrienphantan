@@ -67,9 +67,12 @@ services:
     image: dms/department-service:2.0
     container_name: dept-${DEPT_LC}
     restart: unless-stopped
+    # Hỏi tên thất bại nhanh và 16 luồng phân giải: xem giải thích ở x-department-service trong docker-compose.yml
+    dns_opt: ["timeout:1", "attempts:1"]
     environment:
       NODE_ENV: production
       PORT: 3000
+      UV_THREADPOOL_SIZE: 16
       DEPT_CODE: ${DEPT_CODE}
       DEPT_NAME: ${DEPT_NAME}
       DATABASE_URL: postgresql://${DEPT_DB_USER}:${DEPT_DB_PASSWORD}@dept-${DEPT_LC}-db:5432/${DEPT_DB_NAME}?schema=public
@@ -93,6 +96,46 @@ services:
       minio:
         condition: service_healthy
     networks: [dms-network]
+    deploy:
+      resources:
+        limits:
+          memory: 384M
+
+  # P3 B4: bản thứ 2 của node (cùng CSDL, cùng MinIO). Mang alias dept-<code>: Docker DNS trả về cả hai bản,
+  # nginx và registry tự đi bản còn sống. Không seed người dùng demo (bản 1 đã seed nếu bật).
+  dept-2:
+    image: dms/department-service:2.0
+    container_name: dept-${DEPT_LC}-2
+    restart: unless-stopped
+    dns_opt: ["timeout:1", "attempts:1"]
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      UV_THREADPOOL_SIZE: 16
+      DEPT_CODE: ${DEPT_CODE}
+      DEPT_NAME: ${DEPT_NAME}
+      DATABASE_URL: postgresql://${DEPT_DB_USER}:${DEPT_DB_PASSWORD}@dept-${DEPT_LC}-db:5432/${DEPT_DB_NAME}?schema=public
+      MINIO_ENDPOINT: dept-${DEPT_LC}-minio
+      MINIO_PORT: 9000
+      MINIO_USE_SSL: "false"
+      MINIO_ACCESS_KEY: ${DEPT_MINIO_USER}
+      MINIO_SECRET_KEY: ${DEPT_MINIO_PASSWORD}
+      MINIO_BUCKET: ${DEPT_LC}-documents
+      JWT_SECRET: ${JWT_SECRET}
+      INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN}
+      REGISTRY_URL: http://search-engine-service:3003
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://jaeger:4318
+      SEED_DEMO_USERS: "false"
+    depends_on:
+      db:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+      dept:
+        condition: service_healthy
+    networks:
+      dms-network:
+        aliases: ["dept-${DEPT_LC}"]
     deploy:
       resources:
         limits:

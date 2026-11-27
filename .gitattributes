@@ -3,3 +3,9 @@
 *.conf text eol=lf
 *.inc text eol=lf
 *.pdf binary
+# Tệp đi vào container (Patroni, HAProxy, bộ canh slot): luôn LF, kể cả khi checkout trên Windows
+*.py text eol=lf
+*.cfg text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+Dockerfile* text eol=lf

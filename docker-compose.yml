@@ -6,7 +6,7 @@
 # ============================================================
 # RAM ước tính tổng: ~6-8GB
 #   - PostgreSQL x6 (3 Primary + 3 Replica): ~2.5GB
-#   - Kafka (KRaft): ~1GB
+#   - Kafka KRaft 3 broker: ~1GB (heap 256MB, giới hạn 512MB mỗi broker)
 #   - Debezium: ~512MB
 #   - MinIO x2: ~512MB
 #   - Redis: ~128MB
@@ -16,6 +16,7 @@
 x-department-env: &department-env
   NODE_ENV: production
   PORT: 3000
+  UV_THREADPOOL_SIZE: 16
   MINIO_PORT: 9000
   MINIO_USE_SSL: "false"
   JWT_SECRET: ${JWT_SECRET}
@@ -38,6 +39,12 @@ x-department-service: &department-service
     dockerfile: services/department-service/Dockerfile
   image: dms/department-service:2.0
   restart: unless-stopped
+  # Site đứt mạng chung: các tên ở mạng chung (Redis, search, Jaeger) không còn, câu hỏi tên bị chuyển ra DNS ngoài và treo.
+  # Mặc định Node.js chỉ có 4 luồng phân giải tên: các lần hỏi treo chiếm hết, lần hỏi tên trong site (minio-hr) phải chờ
+  # (đo 2026-11-26: tải tệp lên MinIO chờ 37 giây). Hai biện pháp: hỏi tên thất bại nhanh, và 16 luồng.
+  dns_opt:
+    - timeout:1
+    - attempts:1
   networks:
     - dms-network
   deploy:
@@ -87,6 +94,96 @@ x-kafka-broker: &kafka-broker
       limits:
         memory: 512M
 
+# P1 B2: cụm CSDL trung tâm (Patroni). Cùng tài khoản và mật khẩu với CSDL trung tâm trước đây.
+x-central-pg-env: &central-pg-env
+  # Cụm etcd 3 nút (chịu mất 1 nút); Patroni tự dò thêm thành viên từ danh sách này
+  PATRONI_ETCD3_HOSTS: "'central-etcd:2379','central-etcd-2:2379','central-etcd-3:2379'"
+  PATRONI_POSTGRESQL_LISTEN: 0.0.0.0:5432
+  PATRONI_RESTAPI_LISTEN: 0.0.0.0:8008
+  # Điểm cuối thay đổi trạng thái (switchover, restart) cần xác thực; các điểm đọc sức khỏe thì không
+  PATRONI_RESTAPI_USERNAME: patroni
+  PATRONI_RESTAPI_PASSWORD: ${INTERNAL_SERVICE_TOKEN}
+  PATRONI_SUPERUSER_USERNAME: ${POSTGRES_CENTRAL_USER}
+  PATRONI_SUPERUSER_PASSWORD: ${POSTGRES_CENTRAL_PASSWORD}
+  PATRONI_REPLICATION_USERNAME: ${POSTGRES_REPLICATION_USER}
+  PATRONI_REPLICATION_PASSWORD: ${POSTGRES_REPLICATION_PASSWORD}
+  # Dùng cho psql/pg_dump trong script vận hành (Patroni không đọc)
+  POSTGRES_USER: ${POSTGRES_CENTRAL_USER}
+  POSTGRES_DB: ${POSTGRES_CENTRAL_DB}
+
+# P2 N2: cụm CSDL phòng HR (Patroni). Cùng tài khoản và mật khẩu với CSDL HR trước đây.
+x-hr-pg-env: &hr-pg-env
+  PATRONI_ETCD3_HOSTS: "'central-etcd:2379','central-etcd-2:2379','central-etcd-3:2379'"
+  PATRONI_POSTGRESQL_LISTEN: 0.0.0.0:5432
+  PATRONI_RESTAPI_LISTEN: 0.0.0.0:8008
+  PATRONI_RESTAPI_USERNAME: patroni
+  PATRONI_RESTAPI_PASSWORD: ${INTERNAL_SERVICE_TOKEN}
+  PATRONI_SUPERUSER_USERNAME: ${POSTGRES_HR_USER}
+  PATRONI_SUPERUSER_PASSWORD: ${POSTGRES_HR_PASSWORD}
+  PATRONI_REPLICATION_USERNAME: ${POSTGRES_REPLICATION_USER}
+  PATRONI_REPLICATION_PASSWORD: ${POSTGRES_REPLICATION_PASSWORD}
+  POSTGRES_USER: ${POSTGRES_HR_USER}
+  POSTGRES_DB: ${POSTGRES_HR_DB}
+
+x-central-etcd-env: &central-etcd-env
+  ETCD_DATA_DIR: /etcd-data
+  ETCD_LISTEN_CLIENT_URLS: http://0.0.0.0:2379
+  ETCD_LISTEN_PEER_URLS: http://0.0.0.0:2380
+  # Chỉ có tác dụng khi thư mục dữ liệu còn trống (lần khởi động đầu của nút)
+  ETCD_INITIAL_CLUSTER: ${CENTRAL_ETCD_INITIAL_CLUSTER:-central-etcd=http://central-etcd:2380,central-etcd-2=http://central-etcd-2:2380,central-etcd-3=http://central-etcd-3:2380}
+  ETCD_INITIAL_CLUSTER_STATE: ${CENTRAL_ETCD_CLUSTER_STATE:-new}
+  ETCD_AUTO_COMPACTION_RETENTION: "1"
+
+x-central-etcd: &central-etcd
+  image: dms/central-ha-tools:1.0
+  init: true
+  restart: unless-stopped
+  user: root
+  command: ["etcd"]
+  tmpfs:
+    - /var/lib/postgresql/data      # nền image khai báo VOLUME này; tránh sinh volume vô danh
+  healthcheck:
+    test: ["CMD", "etcdctl", "endpoint", "health"]
+    interval: 10s
+    timeout: 5s
+    retries: 6
+    start_period: 20s
+  networks:
+    - dms-network
+  deploy:
+    resources:
+      limits:
+        memory: 128M
+
+x-central-pg: &central-pg
+  image: dms/patroni:16-4.0.6
+  build:
+    context: .
+    dockerfile: infrastructure/patroni/Dockerfile
+  init: true
+  restart: unless-stopped
+  stop_grace_period: 30s
+  # Phân giải tên thất bại phải thất bại nhanh: etcd sập thì tên central-etcd không còn, DNS ngoài chậm/hỏng làm vòng lặp
+  # Patroni kẹt quá ttl và máy chính tự mất quyền (đã gặp 2026-11-26)
+  dns_opt:
+    - timeout:1
+    - attempts:1
+  depends_on:
+    central-etcd:
+      condition: service_healthy
+  healthcheck:
+    test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:8008/health"]
+    interval: 10s
+    timeout: 5s
+    retries: 6
+    start_period: 60s
+  networks:
+    - dms-network
+  deploy:
+    resources:
+      limits:
+        memory: 512M
+
 services:
 
   # ================================================================
@@ -94,9 +191,12 @@ services:
   # ================================================================
 
   # --- Primary DB ---
+  # Từ P2 N2, CSDL HR chạy trên cụm Patroni hr-pg-1/hr-pg-2 (bên dưới). Hai container cũ chỉ còn để quay lui:
+  # không khởi động mặc định, dữ liệu giữ nguyên trên volume. Quay lui: docs/11 mục quay lui N2.
   postgres-hr-primary:
     image: postgres:16-alpine
     container_name: postgres-hr-primary
+    profiles: ["hr-legacy"]
     restart: unless-stopped
     environment:
       POSTGRES_USER: ${POSTGRES_HR_USER}
@@ -127,6 +227,7 @@ services:
   postgres-hr-replica:
     image: postgres:16-alpine
     container_name: postgres-hr-replica
+    profiles: ["hr-legacy"]
     restart: unless-stopped
     environment:
       PGUSER: ${POSTGRES_REPLICATION_USER}
@@ -255,9 +356,12 @@ services:
   # ================================================================
 
   # --- Primary DB ---
+  # P1 B2: hai máy CSDL trung tâm cũ chỉ giữ để quay lui (profile central-legacy, không chạy mặc định). KHÔNG xóa volume
+  # pgdata-central-* nếu chưa được người dùng đồng ý riêng.
   postgres-central-primary:
     image: postgres:16-alpine
     container_name: postgres-central-primary
+    profiles: ["central-legacy"]
     restart: unless-stopped
     environment:
       POSTGRES_USER: ${POSTGRES_CENTRAL_USER}
@@ -287,6 +391,7 @@ services:
   postgres-central-replica:
     image: postgres:16-alpine
     container_name: postgres-central-replica
+    profiles: ["central-legacy"]
     restart: unless-stopped
     environment:
       PGUSER: ${POSTGRES_REPLICATION_USER}
@@ -329,6 +434,184 @@ services:
       resources:
         limits:
           memory: 256M
+
+
+  # ================================================================
+  #   P2 N2: CSDL PHÒNG HR TỰ CHUYỂN MÁY CHÍNH (Patroni 2 node + etcd chung + HAProxy 2 bản)
+  #   Node HR kết nối hr-db-site:5432 (ghi), hr-db-site:5433 (đọc từ bản sao). Debezium đọc slot qua hr-db:5432.
+  #   Cả cụm nằm trên mạng site-hr (tự trị khi đứt mạng chung) và dms-network (etcd, Debezium, giám sát).
+  #   Lưu lượng NỘI BỘ site (node -> HAProxy -> Patroni, sao chép giữa hai node, failsafe) dùng tên *-site: alias chỉ có
+  #   trên mạng site-hr, nên không bao giờ đi qua mạng chung. Dùng tên thường thì Docker DNS có lúc trả địa chỉ ở mạng
+  #   chung; đứt mạng chung là các kết nối đó treo, đầy pool, node HR không tự trị được (partition-test 2026-11-26).
+  # ================================================================
+  hr-pg-1:
+    <<: *central-pg
+    container_name: hr-pg-1
+    environment:
+      <<: *hr-pg-env
+      PATRONI_NAME: hr-pg-1
+      PATRONI_POSTGRESQL_CONNECT_ADDRESS: hr-pg-1-site:5432
+      PATRONI_RESTAPI_CONNECT_ADDRESS: hr-pg-1-site:8008
+    volumes:
+      - hr-pg-1-data:/var/lib/postgresql/data
+      - ./infrastructure/patroni/patroni-hr.yml:/etc/patroni/patroni.yml:ro
+    networks:
+      dms-network:
+      site-hr:
+        aliases: [hr-pg-1-site]
+
+  hr-pg-2:
+    <<: *central-pg
+    container_name: hr-pg-2
+    environment:
+      <<: *hr-pg-env
+      PATRONI_NAME: hr-pg-2
+      PATRONI_POSTGRESQL_CONNECT_ADDRESS: hr-pg-2-site:5432
+      PATRONI_RESTAPI_CONNECT_ADDRESS: hr-pg-2-site:8008
+    volumes:
+      - hr-pg-2-data:/var/lib/postgresql/data
+      - ./infrastructure/patroni/patroni-hr.yml:/etc/patroni/patroni.yml:ro
+    networks:
+      dms-network:
+      site-hr:
+        aliases: [hr-pg-2-site]
+
+  hr-db: &hr-haproxy
+    image: dms/central-ha-tools:1.0
+    container_name: hr-db
+    init: true
+    restart: unless-stopped
+    command: ["haproxy", "-W", "-db", "-f", "/etc/haproxy/hr.cfg"]
+    volumes:
+      - ./infrastructure/haproxy/hr.cfg:/etc/haproxy/hr.cfg:ro
+    tmpfs:
+      - /var/lib/postgresql/data
+    depends_on:
+      hr-pg-1:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "nc -z 127.0.0.1 5432"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      dms-network:
+      site-hr:
+        aliases: [hr-db-site]
+    deploy:
+      resources:
+        limits:
+          memory: 64M
+
+  hr-db-2:
+    <<: *hr-haproxy
+    container_name: hr-db-2
+    networks:
+      dms-network:
+        aliases: [hr-db]
+      site-hr:
+        aliases: [hr-db-site]
+
+  # ================================================================
+  #   P1 B2: CSDL TRUNG TÂM TỰ CHUYỂN MÁY CHÍNH (Patroni 2 node + etcd + HAProxy)
+  #   Ứng dụng luôn kết nối central-db:5432; HAProxy đưa tới node đang là máy chính.
+  # ================================================================
+  # etcd 3 nút: mất 1 nút vẫn còn quorum (2/3). Mất quorum thì Patroni giữ máy chính nhờ failsafe_mode.
+  # Triển khai mới: 3 nút cùng khởi tạo (state new). Mở rộng từ cụm 1 nút cũ: scripts/central-etcd-expand.sh
+  # (thêm từng nút dạng learner rồi nâng quyền, truyền CENTRAL_ETCD_* lúc nút mới khởi động lần đầu).
+  central-etcd:
+    <<: *central-etcd
+    build:
+      context: .
+      dockerfile: infrastructure/patroni/Dockerfile.tools
+    container_name: central-etcd
+    environment:
+      <<: *central-etcd-env
+      ETCD_NAME: central-etcd
+      ETCD_ADVERTISE_CLIENT_URLS: http://central-etcd:2379
+      ETCD_INITIAL_ADVERTISE_PEER_URLS: http://central-etcd:2380
+    volumes:
+      - central-etcd-data:/etcd-data
+
+  central-etcd-2:
+    <<: *central-etcd
+    container_name: central-etcd-2
+    environment:
+      <<: *central-etcd-env
+      ETCD_NAME: central-etcd-2
+      ETCD_ADVERTISE_CLIENT_URLS: http://central-etcd-2:2379
+      ETCD_INITIAL_ADVERTISE_PEER_URLS: http://central-etcd-2:2380
+    volumes:
+      - central-etcd-2-data:/etcd-data
+
+  central-etcd-3:
+    <<: *central-etcd
+    container_name: central-etcd-3
+    environment:
+      <<: *central-etcd-env
+      ETCD_NAME: central-etcd-3
+      ETCD_ADVERTISE_CLIENT_URLS: http://central-etcd-3:2379
+      ETCD_INITIAL_ADVERTISE_PEER_URLS: http://central-etcd-3:2380
+    volumes:
+      - central-etcd-3-data:/etcd-data
+
+  central-pg-1:
+    <<: *central-pg
+    container_name: central-pg-1
+    environment:
+      <<: *central-pg-env
+      PATRONI_NAME: central-pg-1
+      PATRONI_POSTGRESQL_CONNECT_ADDRESS: central-pg-1:5432
+      PATRONI_RESTAPI_CONNECT_ADDRESS: central-pg-1:8008
+    volumes:
+      - central-pg-1-data:/var/lib/postgresql/data
+      - ./infrastructure/patroni/patroni.yml:/etc/patroni/patroni.yml:ro
+
+  central-pg-2:
+    <<: *central-pg
+    container_name: central-pg-2
+    environment:
+      <<: *central-pg-env
+      PATRONI_NAME: central-pg-2
+      PATRONI_POSTGRESQL_CONNECT_ADDRESS: central-pg-2:5432
+      PATRONI_RESTAPI_CONNECT_ADDRESS: central-pg-2:8008
+    volumes:
+      - central-pg-2-data:/var/lib/postgresql/data
+      - ./infrastructure/patroni/patroni.yml:/etc/patroni/patroni.yml:ro
+
+  # HAProxy 2 bản cùng tên DNS "central-db" (bản 2 mang alias): Docker DNS trả về các bản đang chạy,
+  # một bản dừng thì kết nối mới đi bản còn lại. Không dùng VIP/keepalived (cần quyền mạng đặc biệt).
+  central-db: &central-haproxy
+    image: dms/central-ha-tools:1.0
+    container_name: central-db
+    init: true
+    restart: unless-stopped
+    command: ["haproxy", "-W", "-db", "-f", "/etc/haproxy/central.cfg"]
+    volumes:
+      - ./infrastructure/haproxy/central.cfg:/etc/haproxy/central.cfg:ro
+    tmpfs:
+      - /var/lib/postgresql/data
+    depends_on:
+      central-pg-1:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "nc -z 127.0.0.1 5432"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - dms-network
+    deploy:
+      resources:
+        limits:
+          memory: 64M
+
+  central-db-2:
+    <<: *central-haproxy
+    container_name: central-db-2
+    networks:
+      dms-network:
+        aliases: [central-db]
 
   # ================================================================
   #                   MINIO - FILE STORAGE NODE HR
@@ -403,58 +686,7 @@ services:
           memory: 192M
 
   # ================================================================
-  #                APACHE KAFKA (KRaft - Không cần Zookeeper)
-  # ================================================================
-  # Broker đơn cũ: chỉ giữ để quay lui sau cutover P1 B1 (profile kafka-legacy, không chạy mặc định).
-  # Quay lui: dừng kafka-1..3, `docker start kafka`, trả BOOTSTRAP/KAFKA_BROKERS về kafka:9092 (xem docs/11).
-  kafka:
-    image: apache/kafka:3.7.0
-    container_name: kafka
-    profiles: ["kafka-legacy"]
-    restart: unless-stopped
-    environment:
-      # --- KRaft Configuration ---
-      KAFKA_NODE_ID: 1
-      KAFKA_PROCESS_ROLES: broker,controller
-      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:${KAFKA_CONTROLLER_PORT}
-
-      # --- Listeners ---
-      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:${KAFKA_BROKER_PORT},PLAINTEXT_HOST://0.0.0.0:29092,CONTROLLER://0.0.0.0:${KAFKA_CONTROLLER_PORT}
-      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:${KAFKA_BROKER_PORT},PLAINTEXT_HOST://localhost:29092
-      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
-      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
-      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
-
-      # --- Cluster ---
-      CLUSTER_ID: 'dms-kafka-cluster-2024'
-
-      # --- Topic defaults ---
-      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
-      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
-      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
-      KAFKA_NUM_PARTITIONS: 3
-
-      # --- Log retention ---
-      KAFKA_LOG_RETENTION_HOURS: 168
-      KAFKA_LOG_SEGMENT_BYTES: 1073741824
-      KAFKA_LOG_RETENTION_CHECK_INTERVAL_MS: 300000
-    volumes:
-      - kafka-data:/var/lib/kafka/data
-    healthcheck:
-      test: ["CMD-SHELL", "/opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server localhost:${KAFKA_BROKER_PORT} > /dev/null 2>&1"]
-      interval: 15s
-      timeout: 10s
-      retries: 10
-      start_period: 30s
-    networks:
-      - dms-network
-    deploy:
-      resources:
-        limits:
-          memory: 1024M
-
-  # ================================================================
-  #   P1 B1 (bản gọn): cụm Kafka 3 broker KRaft
+  #   APACHE KAFKA: cụm 3 broker KRaft (P1 B1 bản gọn; broker đơn cũ đã gỡ 2026-11-24)
   # ================================================================
   kafka-1:
     <<: *kafka-broker
@@ -489,11 +721,18 @@ services:
   # ================================================================
   #              DEBEZIUM - KAFKA CONNECT (CDC Pipeline)
   # ================================================================
-  debezium:
+  # P1 B1 (phần còn lại): 2 worker Kafka Connect cùng nhóm (GROUP_ID 1), dùng chung 3 topic trạng thái.
+  # Một worker sập: connector và task của nó chuyển sang worker còn lại (tối đa ~30 giây, xem SCHEDULED_REBALANCE).
+  debezium: &debezium-worker
     image: quay.io/debezium/connect:2.7
     container_name: debezium
     restart: unless-stopped
-    environment:
+    # Kết nối tới CSDL phòng bị cắt (site đứt mạng): mặc định Linux truyền lại 15 lần (khoảng 15 phút) mới coi là chết,
+    # nên sau khi nối lại Debezium còn treo trên socket cũ thêm khoảng 1 phút (đo 2026-11-26). 5 lần: socket chết bị bỏ
+    # trong vài chục giây, Debezium tự thử lại mỗi 10 giây và nối được ngay khi mạng về.
+    sysctls:
+      net.ipv4.tcp_retries2: 5
+    environment: &debezium-env
       GROUP_ID: 1
       CONFIG_STORAGE_TOPIC: debezium_configs
       OFFSET_STORAGE_TOPIC: debezium_offsets
@@ -502,12 +741,16 @@ services:
       # Danh tính ổn định theo tên (mặc định là IP container, đổi sau mỗi lần tạo lại -> connector kẹt UNASSIGNED)
       ADVERTISED_HOST_NAME: debezium
 
-      # P1 B1: ba topic trạng thái của Connect nhân bản RF = 3 (bản gọn: vẫn 1 worker Debezium).
+      # P1 B1: ba topic trạng thái của Connect nhân bản RF = 3.
       # Phải có tiền tố CONNECT_: entrypoint của image chỉ chuyển biến CONNECT_* thành cấu hình worker
       # (biến CONFIG_STORAGE_REPLICATION_FACTOR cũ không có tác dụng, RF = 1 lấy từ tệp mặc định của image).
       CONNECT_CONFIG_STORAGE_REPLICATION_FACTOR: 3
       CONNECT_OFFSET_STORAGE_REPLICATION_FACTOR: 3
       CONNECT_STATUS_STORAGE_REPLICATION_FACTOR: 3
+      # Mặc định 300000 (5 phút): Connect chờ worker vắng mặt quay lại rồi mới chia lại task. 30 giây cho HA.
+      CONNECT_SCHEDULED_REBALANCE_MAX_DELAY_MS: 30000
+      # Mặc định của image là -Xms256M -Xmx2G, vượt giới hạn 768M của container
+      HEAP_OPTS: "-Xms192m -Xmx384m"
     depends_on:
       kafka-1:
         condition: service_healthy
@@ -515,7 +758,7 @@ services:
         condition: service_healthy
       kafka-3:
         condition: service_healthy
-      postgres-hr-primary:
+      hr-db:
         condition: service_healthy
       postgres-acc-primary:
         condition: service_healthy
@@ -531,6 +774,13 @@ services:
       resources:
         limits:
           memory: 768M
+
+  debezium-2:
+    <<: *debezium-worker
+    container_name: debezium-2
+    environment:
+      <<: *debezium-env
+      ADVERTISED_HOST_NAME: debezium-2
 
   # ================================================================
   #              NGINX - API GATEWAY + LOAD BALANCER
@@ -570,8 +820,8 @@ services:
       <<: *department-env
       DEPT_CODE: HR
       DEPT_NAME: "Phòng Nhân sự"
-      DATABASE_URL: postgresql://${POSTGRES_HR_USER}:${POSTGRES_HR_PASSWORD}@postgres-hr-primary:5432/${POSTGRES_HR_DB}?schema=public
-      DATABASE_REPLICA_URL: postgresql://${POSTGRES_HR_USER}:${POSTGRES_HR_PASSWORD}@postgres-hr-replica:5432/${POSTGRES_HR_DB}?schema=public
+      DATABASE_URL: postgresql://${POSTGRES_HR_USER}:${POSTGRES_HR_PASSWORD}@hr-db-site:5432/${POSTGRES_HR_DB}?schema=public
+      DATABASE_REPLICA_URL: postgresql://${POSTGRES_HR_USER}:${POSTGRES_HR_PASSWORD}@hr-db-site:5433/${POSTGRES_HR_DB}?schema=public
       MINIO_ENDPOINT: minio-hr
       MINIO_ACCESS_KEY: ${MINIO_HR_ROOT_USER}
       MINIO_SECRET_KEY: ${MINIO_HR_ROOT_PASSWORD}
@@ -580,7 +830,7 @@ services:
       - dms-network
       - site-hr
     depends_on:
-      postgres-hr-primary:
+      hr-db:
         condition: service_healthy
       minio-hr:
         condition: service_healthy
@@ -595,8 +845,8 @@ services:
       DEPT_CODE: HR
       DEPT_NAME: "Phòng Nhân sự"
       SEED_DEMO_USERS: "false"
-      DATABASE_URL: postgresql://${POSTGRES_HR_USER}:${POSTGRES_HR_PASSWORD}@postgres-hr-primary:5432/${POSTGRES_HR_DB}?schema=public
-      DATABASE_REPLICA_URL: postgresql://${POSTGRES_HR_USER}:${POSTGRES_HR_PASSWORD}@postgres-hr-replica:5432/${POSTGRES_HR_DB}?schema=public
+      DATABASE_URL: postgresql://${POSTGRES_HR_USER}:${POSTGRES_HR_PASSWORD}@hr-db-site:5432/${POSTGRES_HR_DB}?schema=public
+      DATABASE_REPLICA_URL: postgresql://${POSTGRES_HR_USER}:${POSTGRES_HR_PASSWORD}@hr-db-site:5433/${POSTGRES_HR_DB}?schema=public
       MINIO_ENDPOINT: minio-hr
       MINIO_ACCESS_KEY: ${MINIO_HR_ROOT_USER}
       MINIO_SECRET_KEY: ${MINIO_HR_ROOT_PASSWORD}
@@ -607,7 +857,7 @@ services:
       site-hr:
         aliases: [dept-hr]
     depends_on:
-      postgres-hr-primary:
+      hr-db:
         condition: service_healthy
       minio-hr:
         condition: service_healthy
@@ -634,6 +884,31 @@ services:
       minio-acc:
         condition: service_healthy
 
+  # P3 B4: bản thứ 2 của node ACC (cùng CSDL, cùng MinIO), cùng cách với dept-hr-2: mang alias "dept-acc",
+  # Docker DNS trả về cả hai địa chỉ; một bản dừng thì gateway và registry đi bản còn lại. Không seed người dùng demo.
+  dept-acc-2:
+    <<: *department-service
+    container_name: dept-acc-2
+    environment:
+      <<: *department-env
+      DEPT_CODE: ACC
+      DEPT_NAME: "Phòng Kế toán"
+      SEED_DEMO_USERS: "false"
+      DATABASE_URL: postgresql://${POSTGRES_ACC_USER}:${POSTGRES_ACC_PASSWORD}@postgres-acc-primary:5432/${POSTGRES_ACC_DB}?schema=public
+      DATABASE_REPLICA_URL: postgresql://${POSTGRES_ACC_USER}:${POSTGRES_ACC_PASSWORD}@postgres-acc-replica:5432/${POSTGRES_ACC_DB}?schema=public
+      MINIO_ENDPOINT: minio-acc
+      MINIO_ACCESS_KEY: ${MINIO_ACC_ROOT_USER}
+      MINIO_SECRET_KEY: ${MINIO_ACC_ROOT_PASSWORD}
+      MINIO_BUCKET: accounting-documents
+    networks:
+      dms-network:
+        aliases: [dept-acc]
+    depends_on:
+      postgres-acc-primary:
+        condition: service_healthy
+      minio-acc:
+        condition: service_healthy
+
   # ================================================================
   #              SEARCH ENGINE SERVICE (READ ZONE)
   # ================================================================
@@ -648,7 +923,8 @@ services:
     environment:
       PORT: 3003
       NODE_ENV: production
-      DATABASE_URL: postgresql://${POSTGRES_CENTRAL_USER}:${POSTGRES_CENTRAL_PASSWORD}@postgres-central-primary:5432/${POSTGRES_CENTRAL_DB}
+      # P1 B2: qua HAProxy tới máy chính của cụm Patroni (quay lui: đổi central-db thành postgres-central-primary)
+      DATABASE_URL: postgresql://${POSTGRES_CENTRAL_USER}:${POSTGRES_CENTRAL_PASSWORD}@central-db:5432/${POSTGRES_CENTRAL_DB}
       KAFKA_BROKERS: kafka-1:9092,kafka-2:9092,kafka-3:9092
       KAFKA_GROUP_ID: index-projector
       REDIS_HOST: redis
@@ -662,9 +938,12 @@ services:
       OTEL_SERVICE_NAME: search-gateway
       UV_THREADPOOL_SIZE: 16   # phân giải tên máy treo (CSDL sập) không được chặn lệnh gọi tới các node
       PROMETHEUS_URL: http://prometheus:9090   # trang giám sát của Ban Giám đốc đọc số bản đang sống, cảnh báo
-      DEBEZIUM_URL: http://debezium:8083       # ... và trạng thái connector
+      # ... trạng thái connector (hỏi lần lượt từng worker), cụm Patroni và etcd
+      DEBEZIUM_URL: http://debezium:8083,http://debezium-2:8083
+      PATRONI_CLUSTERS: "Trung tâm=central-pg-1:8008,central-pg-2:8008;Phòng HR=hr-pg-1:8008,hr-pg-2:8008"
+      ETCD_ENDPOINTS: central-etcd:2379,central-etcd-2:2379,central-etcd-3:2379
     depends_on:
-      postgres-central-primary:
+      central-db:
         condition: service_healthy
       kafka-1:
         condition: service_healthy
@@ -737,10 +1016,27 @@ services:
     command:
       - |
         while true; do
-          for c in $$(curl -s http://debezium:8083/connectors | tr -d '[]"' | tr ',' ' '); do
-            if curl -s http://debezium:8083/connectors/$$c/status | grep -q FAILED; then
-              echo "$$(date -u +%H:%M:%S) restart $$c (task FAILED)"
-              curl -s -X POST "http://debezium:8083/connectors/$$c/restart?includeTasks=true&onlyFailed=true" > /dev/null
+          # Hỏi worker nào còn sống (2 worker cùng nhóm: REST của worker nào cũng thấy mọi connector)
+          H=debezium; curl -s -m 3 -o /dev/null http://$$H:8083/ || H=debezium-2
+          for c in $$(curl -s -m 5 http://$$H:8083/connectors | tr -d '[]"' | tr ',' ' '); do
+            if curl -s -m 5 http://$$H:8083/connectors/$$c/status | grep -q FAILED; then
+              echo "$$(date -u +%H:%M:%S) restart $$c (task FAILED) qua $$H"
+              curl -s -m 5 -X POST "http://$$H:8083/connectors/$$c/restart?includeTasks=true&onlyFailed=true" > /dev/null
+              continue
+            fi
+            # Task RUNNING nhưng slot ở CSDL phòng không có ai đọc: kết nối cũ của Debezium treo sau khi site đứt mạng
+            # (TCP chỉ phát hiện ở lần truyền lại kế tiếp, có thể hơn 1 phút). Chỉ xử lý khi node trả lời được (hết đứt mạng):
+            # 3 lần liên tiếp (30 giây) thì khởi động lại task. Đo 2026-11-26: hội tụ sau đứt mạng 75 giây khi chưa có bước này.
+            sa=$$(curl -s -m 3 http://dept-$${c#outbox-}:3000/sync/status | grep -o '"slotActive":[a-z]*' | cut -d: -f2)
+            if [ "$$sa" = false ]; then
+              n=$$(( $$(cat /tmp/inactive_$$c 2>/dev/null || echo 0) + 1 )); echo $$n > /tmp/inactive_$$c
+              if [ $$n -ge 3 ]; then
+                echo "$$(date -u +%H:%M:%S) restart task $$c (slot không có ai đọc $$((n * 10)) giây) qua $$H"
+                curl -s -m 5 -X POST "http://$$H:8083/connectors/$$c/tasks/0/restart" > /dev/null
+                echo 0 > /tmp/inactive_$$c
+              fi
+            else
+              echo 0 > /tmp/inactive_$$c
             fi
           done
           sleep 10
@@ -772,7 +1068,7 @@ services:
       INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN}
       RESYNC_AFTER_REGISTER: "true"
       # SALES: node riêng (dept-sales-db, DB dms_sales). Thiếu dòng này thì thay đổi của SALES không tới CDC.
-      CONNECTORS: "HR:postgres-hr-primary:${POSTGRES_HR_DB},ACC:postgres-acc-primary:${POSTGRES_ACC_DB},SALES:dept-sales-db:dms_sales"
+      CONNECTORS: "HR:hr-db:${POSTGRES_HR_DB},ACC:postgres-acc-primary:${POSTGRES_ACC_DB},SALES:dept-sales-db:dms_sales"
     volumes:
       - ./infrastructure/debezium/register-connectors.sh:/register-connectors.sh:ro
       - ./infrastructure/debezium/connector-template.json:/connector-template.json:ro
@@ -903,6 +1199,22 @@ volumes:
     name: dms-pgdata-central-primary
   pgdata-central-replica:
     name: dms-pgdata-central-replica
+  # P1 B2
+  central-etcd-data:
+    name: dms-central-etcd-data
+  # P2 N2
+  hr-pg-1-data:
+    name: dms-hr-pg-1-data
+  hr-pg-2-data:
+    name: dms-hr-pg-2-data
+  central-etcd-2-data:
+    name: dms-central-etcd-2-data
+  central-etcd-3-data:
+    name: dms-central-etcd-3-data
+  central-pg-1-data:
+    name: dms-central-pg-1-data
+  central-pg-2-data:
+    name: dms-central-pg-2-data
 
   # MinIO Data
   minio-hr-data:
@@ -914,9 +1226,6 @@ volumes:
   redis-data:
     name: dms-redis-data
 
-  # Kafka Data (volume của broker cũ, profile kafka-legacy)
-  kafka-data:
-    name: dms-kafka-data
   # P1 B1: log của từng broker trong cụm 3 nút
   kafka-1-data:
     name: dms-kafka-1-data

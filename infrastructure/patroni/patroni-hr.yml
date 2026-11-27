@@ -1,0 +1,63 @@
+# P2 N2: cụm CSDL phòng Nhân sự (HR) trên Patroni. Dùng chung cụm etcd 3 nút với CSDL trung tâm (khác scope).
+# Tên node, địa chỉ, tài khoản và mật khẩu lấy từ biến môi trường PATRONI_* (không ghi bí mật vào tệp này).
+# Node hr-pg-1 nhận lại thư mục dữ liệu của CSDL HR cũ (cùng system id, cùng vị trí WAL, giữ slot dbz_hr_outbox),
+# nên Debezium đọc tiếp đúng offset đã lưu, không cần chụp lại dữ liệu.
+scope: dms-hr
+
+bootstrap:
+  dcs:
+    ttl: 20
+    loop_wait: 5
+    retry_timeout: 5
+    maximum_lag_on_failover: 1048576
+    # Mất etcd hoặc site HR đứt khỏi mạng chung: máy chính vẫn ghi được nếu hai node HR còn thấy nhau
+    failsafe_mode: true
+    # Ghi chờ bản sao xác nhận; bản sao chết thì lùi về bất đồng bộ, không dừng ghi
+    synchronous_mode: true
+    synchronous_mode_strict: false
+    # Slot logic của Debezium là slot cố định: Patroni chép nó sang bản sao và đẩy vị trí theo máy chính,
+    # nên khi chuyển máy chính, slot đã có sẵn trên máy chính mới (PostgreSQL 16 chưa có sync_replication_slots)
+    slots:
+      dbz_hr_outbox:
+        type: logical
+        database: dms_hr
+        plugin: pgoutput
+    postgresql:
+      use_pg_rewind: true
+      use_slots: true
+      parameters:
+        max_connections: 100
+        shared_buffers: 128MB
+        effective_cache_size: 256MB
+        work_mem: 4MB
+        maintenance_work_mem: 64MB
+        wal_level: logical
+        max_wal_senders: 10
+        max_replication_slots: 10
+        wal_keep_size: 1GB
+        max_logical_replication_workers: 4
+        max_sync_workers_per_subscription: 2
+        hot_standby: "on"
+        # Bắt buộc để slot logic trên bản sao không bị mất dữ liệu cần giải mã
+        hot_standby_feedback: "on"
+        wal_log_hints: "on"
+        log_statement: mod
+        log_connections: "on"
+        log_disconnections: "on"
+        log_timezone: Asia/Ho_Chi_Minh
+        timezone: Asia/Ho_Chi_Minh
+
+postgresql:
+  data_dir: /var/lib/postgresql/data/pgroot
+  bin_dir: /usr/local/bin
+  use_unix_socket: true
+  use_unix_socket_repl: false
+  parameters:
+    unix_socket_directories: /var/run/postgresql
+  pg_hba:
+    - local all all trust
+    - host replication all 0.0.0.0/0 scram-sha-256
+    - host all all 0.0.0.0/0 scram-sha-256
+
+watchdog:
+  mode: "off"

@@ -1,4 +1,14 @@
-import { Injectable, NotFoundException, BadRequestException, ForbiddenException, Logger, Optional } from '@nestjs/common';
+import {
+  Injectable,
+  NotFoundException,
+  BadRequestException,
+  ForbiddenException,
+  ConflictException,
+  UnprocessableEntityException,
+  ServiceUnavailableException,
+  Logger,
+  Optional,
+} from '@nestjs/common';
 import { PrismaClient, ResilientDatabaseService } from '@dms/database';
 import { sanitizeBigInt } from '@dms/common';
 import { FileService } from '../file/file.service';
@@ -7,6 +17,25 @@ import { OutboxService } from '../outbox/outbox.service';
 import { CreateDocumentDto } from '../../dto/create-document.dto';
 import { UpdateDocumentDto } from '../../dto/update-document.dto';
 import { CreateVersionDto } from '../../dto/create-version.dto';
+import { IdempotencyService, IdempotencyLostError } from './idempotency.service';
+
+/**
+ * Lỗi CSDL tạm thời (không nối được, hết chỗ trong pool, transaction quá hạn, xung đột ghi): trả 503 để client thử lại,
+ * không trả 500 như lỗi lập trình. Controller gắn thêm tiêu đề Retry-After.
+ */
+const RETRYABLE_DB_CODES = new Set(['P1001', 'P1002', 'P1008', 'P1017', 'P2024', 'P2028', 'P2034']);
+export function toRetryableDbError(error: any): any {
+  if (error && typeof error.code === 'string' && RETRYABLE_DB_CODES.has(error.code)) {
+    return new ServiceUnavailableException({
+      statusCode: 503,
+      message: 'Cơ sở dữ liệu tạm thời chưa xử lý kịp, vui lòng thử lại sau ít giây',
+      code: error.code,
+    });
+  }
+  return error;
+}
+
+const IDEM_ENDPOINT = 'POST /documents';
 
 @Injectable()
 export class DocumentService {
@@ -17,8 +46,70 @@ export class DocumentService {
     private readonly fileService: FileService,
     private readonly auditService: AuditService,
     private readonly outbox: OutboxService,
+    private readonly idem: IdempotencyService,
     @Optional() private readonly haDb?: ResilientDatabaseService,
   ) {}
+
+  /**
+   * P3 N6: tạo tài liệu với tiêu đề Idempotency-Key. Gửi lại cùng khóa và cùng nội dung: trả lại đúng tài liệu đã tạo
+   * (replayed = true), không tải tệp lên lần nữa, không tạo tài liệu thứ hai.
+   */
+  async createIdempotent(
+    dto: CreateDocumentDto,
+    file: Express.Multer.File,
+    ipAddress: string | undefined,
+    userRole: string,
+    key: string,
+  ): Promise<{ body: any; replayed: boolean }> {
+    if (!IdempotencyService.validKey(key)) {
+      throw new BadRequestException('Idempotency-Key không hợp lệ: 8-128 ký tự gồm chữ, số và . _ : -');
+    }
+    if (!file) {
+      throw new BadRequestException('Bắt buộc phải tải lên tệp tài liệu');
+    }
+    const userId = BigInt(dto.userId || 1);
+    const hash = IdempotencyService.hashRequest(
+      [dto.title, dto.description, dto.accessLevel, dto.categoryId, dto.tags, file.originalname],
+      file.buffer,
+    );
+    const begin = async () => {
+      try {
+        return await this.idem.begin(userId, IDEM_ENDPOINT, key, hash);
+      } catch (e) {
+        throw toRetryableDbError(e);
+      }
+    };
+    const b = await begin();
+    if (b.kind === 'replay') return { body: await this.createdResponse(b.docId), replayed: true };
+    if (b.kind === 'mismatch') {
+      throw new UnprocessableEntityException('Idempotency-Key này đã được dùng cho một yêu cầu tạo tài liệu khác');
+    }
+    if (b.kind === 'in_progress') {
+      throw new ConflictException('Yêu cầu cùng Idempotency-Key đang được xử lý, vui lòng thử lại sau ít giây');
+    }
+    try {
+      const body = await this.create(dto, file, ipAddress, userRole, { userId, key });
+      return { body, replayed: false };
+    } catch (e) {
+      if (e instanceof IdempotencyLostError) {
+        const again = await begin();
+        if (again.kind === 'replay') return { body: await this.createdResponse(again.docId), replayed: true };
+      }
+      await this.idem.abort(userId, IDEM_ENDPOINT, key);
+      throw e;
+    }
+  }
+
+  /** Thân phản hồi giống lần tạo đầu: tài liệu + tệp của phiên bản 1. Đọc ở máy chính (bản sao có thể trễ). */
+  private async createdResponse(docId: bigint) {
+    const doc = await this.prisma.document.findUnique({
+      where: { docId },
+      include: { versions: { where: { versionNo: 1 }, include: { file: true } } },
+    });
+    if (!doc) throw new NotFoundException('Tài liệu đã tạo bằng khóa này không còn tồn tại');
+    const { versions, ...rest } = doc;
+    return sanitizeBigInt({ ...rest, file: versions[0]?.file ?? null });
+  }
 
   /**
    * Trả về kết nối đọc ưu tiên: Tự động chuyển sang Replica nếu Primary gặp sự cố
@@ -35,13 +126,19 @@ export class DocumentService {
     file: Express.Multer.File,
     ipAddress?: string,
     userRole = 'STAFF',
+    idem?: { userId: bigint; key: string },
   ) {
     if (!file) {
       throw new BadRequestException('Bắt buộc phải tải lên tệp tài liệu');
     }
 
     // 1. Upload file vật lý lên MinIO trước
-    const fileRecord = await this.fileService.uploadFile(file);
+    let fileRecord: any;
+    try {
+      fileRecord = await this.fileService.uploadFile(file);
+    } catch (e) {
+      throw toRetryableDbError(e);
+    }
 
     try {
       // Nếu là Trưởng phòng/Giám đốc tạo thì PUBLISHED ngay; nếu là Nhân viên thì là DRAFT (Chờ phê duyệt ban hành)
@@ -98,6 +195,9 @@ export class DocumentService {
         // Outbox: ghi sự kiện CÙNG transaction với tài liệu
         await this.outbox.emitDocumentChanged(tx, doc.docId, 'DocumentCreated');
 
+        // Khóa idempotency chuyển DONE cùng transaction: tài liệu và khóa cùng có hoặc cùng không
+        if (idem) await this.idem.complete(tx, idem.userId, IDEM_ENDPOINT, idem.key, doc.docId);
+
         return { doc, version };
       });
 
@@ -120,7 +220,7 @@ export class DocumentService {
       if (fileRecord && fileRecord.storagePath) {
         await this.fileService.deletePhysicalFile(fileRecord.storagePath);
       }
-      throw error;
+      throw toRetryableDbError(error);
     }
   }
 

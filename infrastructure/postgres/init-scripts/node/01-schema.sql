@@ -337,3 +337,40 @@ INSERT INTO document_share_history (share_id, doc_id, shared_with_dept, permissi
 SELECT s.share_id, s.doc_id, s.shared_with_dept, s.permission, s.expires_at, 'REVOKED', s.access_request_id, s.revoked_by, COALESCE(s.revoked_at, s.updated_at)
   FROM document_share s
  WHERE s.is_revoked AND NOT EXISTS (SELECT 1 FROM document_share_history h WHERE h.share_id = s.share_id AND h.action = 'REVOKED');
+
+-- ---------------------------------------------------------------- P3 N6: IDEMPOTENCY-KEY
+-- POST /documents gửi lại cùng khóa (mất mạng, hết thời gian chờ, bấm hai lần) trả lại đúng tài liệu đã tạo.
+-- Khóa gắn với người dùng; DONE được ghi cùng transaction với tài liệu; giữ 24 giờ rồi dọn.
+CREATE TABLE IF NOT EXISTS idempotency_key (
+    user_id      BIGINT       NOT NULL,
+    endpoint     VARCHAR(64)  NOT NULL,
+    idem_key     VARCHAR(128) NOT NULL,
+    request_hash CHAR(64)     NOT NULL,
+    status       VARCHAR(12)  NOT NULL DEFAULT 'IN_PROGRESS',
+    doc_id       BIGINT,
+    locked_at    TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+    created_at   TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+    expires_at   TIMESTAMPTZ  NOT NULL DEFAULT NOW() + INTERVAL '24 hours',
+    PRIMARY KEY (user_id, endpoint, idem_key),
+    CONSTRAINT chk_idem_status CHECK (status IN ('IN_PROGRESS', 'DONE')),
+    CONSTRAINT chk_idem_done_doc CHECK (status <> 'DONE' OR doc_id IS NOT NULL)
+);
+CREATE INDEX IF NOT EXISTS idx_idem_expires ON idempotency_key(expires_at);
+
+-- ---------------------------------------------------------------- P2 N2: NHỊP TIM CỦA DEBEZIUM
+-- Debezium chỉ xác nhận vị trí slot khi nhận được giao dịch thuộc publication. Phòng ít tạo tài liệu thì slot đứng yên,
+-- WAL dồn lại, và bản chép slot trên bản sao vừa dựng lại không dùng được (đã gặp 2026-11-26, hr-failover-test lượt 2).
+-- Connector chạy heartbeat.action.query ghi vào bảng này mỗi nhịp; bảng nằm trong publication nhưng không có trong
+-- table.include.list, nên không sinh sự kiện ra Kafka, chỉ giúp vị trí slot đi theo WAL.
+CREATE TABLE IF NOT EXISTS debezium_heartbeat (
+    id      INT PRIMARY KEY,
+    beat_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+GRANT SELECT, INSERT, UPDATE ON debezium_heartbeat TO PUBLIC;
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM pg_publication WHERE pubname = 'dms_outbox_pub')
+     AND NOT EXISTS (SELECT 1 FROM pg_publication_tables WHERE pubname = 'dms_outbox_pub' AND tablename = 'debezium_heartbeat') THEN
+    ALTER PUBLICATION dms_outbox_pub ADD TABLE debezium_heartbeat;
+  END IF;
+END $$;

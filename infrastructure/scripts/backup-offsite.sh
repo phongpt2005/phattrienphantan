@@ -11,6 +11,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/../.."
 set -a; . ./.env; set +a
+. infrastructure/scripts/lib-central.sh
 
 KEY="$(printf '%s' "${BACKUP_ENCRYPTION_KEY:-}" | tr -d '\r')"
 if [ "${#KEY}" -lt 32 ]; then
@@ -41,17 +42,20 @@ dump_db() { # $1 nhãn, $2 container, $3 đường dẫn tệp đích (.sql.gz.e
     echo "LỖI pg_dump $1" >&2; rm -f "$3"; return 1
   fi
 }
-dump_db HR      postgres-hr-primary        "$DEST/dms_hr.sql.gz.enc"
+dump_db HR      "$(hr_leader)"     "$DEST/dms_hr.sql.gz.enc"
 dump_db ACC     postgres-acc-primary       "$DEST/dms_accounting.sql.gz.enc"
 dump_db SALES   dept-sales-db              "$DEST/dms_sales.sql.gz.enc"
-dump_db CENTRAL postgres-central-primary   "$DEST/dms_central.sql.gz.enc"
+dump_db CENTRAL "$(central_leader)"   "$DEST/dms_central.sql.gz.enc"
 
 # 2. MinIO: lấy /data từ container (không cần tar trong container) -> tar.gz -> mã hóa
 for pair in "HR:minio-hr" "ACC:minio-acc" "SALES:dept-sales-minio"; do
   label=${pair%%:*}; c=${pair##*:}; lower=$(echo "$label" | tr 'A-Z' 'a-z')
   TMP=$(mktemp -d)
+  # docker là chương trình Windows: đích phải là đường dẫn Windows tường minh. Không dựa vào việc Git Bash tự đổi /tmp/...
+  # (khi MSYS_NO_PATHCONV=1, ví dụ chạy qua acceptance-scorecard.sh, việc tự đổi tắt và docker cp lỗi: 2026-11-27)
+  TMPW=$(cygpath -m "$TMP" 2>/dev/null || echo "$TMP")
   out="$DEST/minio_${lower}.tar.gz.enc"
-  if docker cp "$c:/data" "$TMP/data" 2>/dev/null && tar -czf - -C "$TMP" data | ENC > "$out"; then
+  if docker cp "$c:/data" "$TMPW/data" && tar -czf - -C "$TMP" data | ENC > "$out"; then
     note "minio $label minio_${lower}.tar.gz.enc $(sha "$out") $(stat -c %s "$out")"
   else
     echo "LỖI sao lưu MinIO $label ($c)" >&2; rm -f "$out"
@@ -61,8 +65,8 @@ done
 
 # 3. Số liệu đối soát tại thời điểm sao lưu (restore-test.sh so với số này)
 cnt() { docker exec "$1" sh -c "psql -U \"\$POSTGRES_USER\" -d \"\$POSTGRES_DB\" -tAc \"$2\""; }
-cen() { docker exec postgres-central-primary psql -U "$POSTGRES_CENTRAL_USER" -d "$POSTGRES_CENTRAL_DB" -tAc "$1"; }
-note "count node_HR_documents $(cnt postgres-hr-primary 'select count(*) from document')"
+cen() { docker exec "$(central_leader)" psql -U "$POSTGRES_CENTRAL_USER" -d "$POSTGRES_CENTRAL_DB" -tAc "$1"; }
+note "count node_HR_documents $(cnt "$(hr_leader)" 'select count(*) from document')"
 note "count node_ACC_documents $(cnt postgres-acc-primary 'select count(*) from document')"
 note "count node_SALES_documents $(cnt dept-sales-db 'select count(*) from document')"
 note "count central_search_document $(cen 'select count(*) from search_document')"

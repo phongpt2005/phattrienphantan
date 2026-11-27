@@ -130,7 +130,7 @@ def step_login(s):
     return True, "đã đăng nhập %s/%s" % (s["dept"], s["user"])
 
 
-def step_search(s):
+def _search_once(s):
     q = urllib.parse.urlencode({"q": s["q"], "limit": s.get("limit", 10)})
     code, body = http_json("GET", "%s/api/search?%s" % (BASE, q), token=ctx[s["as"]])
     if code != s.get("expect_status", 200):
@@ -139,6 +139,20 @@ def step_search(s):
         return False, "partial=%s, mong đợi %s" % (body.get("partial"), s["expect_partial"])
     total = body.get("total") if isinstance(body, dict) else None
     return True, "HTTP %s, tổng %s, partial=%s" % (code, total, body.get("partial") if isinstance(body, dict) else None)
+
+
+def step_search(s):
+    # "within": số giây tối đa để đạt kỳ vọng (đo thời gian hồi phục, ví dụ sau khi cụm CSDL bật lại:
+    # còn bầu máy chính, HAProxy kiểm lại, mạch ngắt của search nghỉ). Không có "within": kiểm một lần.
+    within = float(s.get("within", 0))
+    t0 = time.time()
+    ok, detail = _search_once(s)
+    while not ok and time.time() - t0 < within:
+        time.sleep(2)
+        ok, detail = _search_once(s)
+    if within:
+        detail += "; hồi phục sau %d giây (giới hạn %d)" % (time.time() - t0, within) if ok else "; chưa đạt sau %d giây" % within
+    return ok, detail
 
 
 def step_http(s):

@@ -4,6 +4,7 @@ import { PrismaClient, ResilientDatabaseService } from '@dms/database';
 import { MetricsModule, MetricsInterceptor, requireEnv } from '@dms/common';
 import { DocumentController } from './modules/document/document.controller';
 import { DocumentService } from './modules/document/document.service';
+import { IdempotencyService } from './modules/document/idempotency.service';
 import { CategoryController } from './modules/category/category.controller';
 import { CategoryService } from './modules/category/category.service';
 import { FileService } from './modules/file/file.service';
@@ -47,6 +48,7 @@ import { AuthModule } from './modules/auth/auth.module';
     CategoryService,
     OutboxService,
     SharesService,
+    IdempotencyService,
     DocumentService,
     LocalSearchService,
     RegistryClientService,

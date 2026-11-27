@@ -18,3 +18,21 @@ groups:
         labels: {severity: critical}
         annotations:
           summary: "Có sự kiện đồng bộ rơi vào DLQ (phòng {{ $labels.department }})"
+      - alert: EtcdSlowDisk
+        expr: histogram_quantile(0.99, sum by (instance, le) (rate(etcd_disk_wal_fsync_duration_seconds_bucket[2m]))) > 0.5
+        for: 1m
+        labels: {severity: warning}
+        annotations:
+          summary: "etcd {{ $labels.instance }} ghi đĩa chậm (p99 fsync > 0,5 giây): chuyển máy chính CSDL có thể chậm hơn mục tiêu 30 giây"
+      - alert: EtcdNoLeader
+        expr: etcd_server_has_leader == 0
+        for: 10s
+        labels: {severity: critical}
+        annotations:
+          summary: "etcd {{ $labels.instance }} không có leader: Patroni không tự chuyển máy chính được (máy chính hiện tại vẫn ghi nhờ failsafe)"
+      - alert: PatroniNoPrimary
+        expr: sum by (scope) (patroni_primary) < 1
+        for: 15s
+        labels: {severity: critical}
+        annotations:
+          summary: "Cụm CSDL {{ $labels.scope }} không có máy chính: không ghi được"

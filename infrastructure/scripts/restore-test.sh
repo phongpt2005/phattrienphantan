@@ -10,6 +10,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/../.."
 set -a; . ./.env; set +a
+. infrastructure/scripts/lib-central.sh
 
 KEY="$(printf '%s' "${BACKUP_ENCRYPTION_KEY:-}" | tr -d '\r')"
 export BACKUP_KEY_CLEAN="$KEY"
@@ -17,12 +18,14 @@ DEC() { openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -pass env:BACKUP_KEY_CL
 
 PROFILE_UNIX="$(cygpath -u "${USERPROFILE:-}" 2>/dev/null || echo "$HOME")"
 BASE="$PROFILE_UNIX/OneDrive/dms_backups"
-SNAP="${1:-$(ls -1d "$BASE"/*/ 2>/dev/null | sort | tail -n 1)}"
+# Chỉ lấy thư mục sao lưu CSDL (tên YYYYMMDD_HHMMSS); trước đây lấy nhầm kafka_* vì sắp theo chữ cái
+SNAP="${1:-$(ls -1d "$BASE"/[0-9]*/ 2>/dev/null | sort | tail -n 1)}"
 SNAP="${SNAP%/}"
 PASS=0; FAIL=0
 ok()  { PASS=$((PASS+1)); printf "  \033[32mPASS\033[0m %s\n" "$1"; }
 bad() { FAIL=$((FAIL+1)); printf "  \033[31mFAIL\033[0m %s\n" "$1"; }
-chk() { if [ "$2" = "$3" ]; then ok "$1 ($2)"; else bad "$1 (nhận '$2', mong đợi '$3')"; fi; }
+chk() { # giá trị rỗng là lỗi (truy vấn hỏng): không được tính "rỗng = rỗng" là đạt
+  if [ -z "$2" ] || [ -z "$3" ]; then bad "$1 (giá trị rỗng: nhận '$2', mong đợi '$3')"; elif [ "$2" = "$3" ]; then ok "$1 ($2)"; else bad "$1 (nhận '$2', mong đợi '$3')"; fi; }
 [ -n "$SNAP" ] && [ -f "$SNAP/manifest.txt" ] || { echo "Không tìm thấy bản sao lưu (cần manifest.txt) tại: '$SNAP'"; exit 1; }
 T0=$(date +%s)
 echo "== Bản sao lưu: $SNAP =="
@@ -53,7 +56,7 @@ drop_db() { docker exec "$1" sh -c "psql -U \"\$POSTGRES_USER\" -d postgres -qc 
 q() { docker exec "$1" sh -c "psql -U \"\$POSTGRES_USER\" -d $2 -tAc \"$3\""; }
 
 echo "== 2. Khôi phục CSDL node vào DB tạm và đối soát tài liệu =="
-for pair in "HR:postgres-hr-primary:node_HR_documents" \
+for pair in "HR:$(hr_leader):node_HR_documents" \
             "ACC:postgres-acc-primary:node_ACC_documents" \
             "SALES:dept-sales-db:node_SALES_documents"; do
   IFS=: read -r label c key <<< "$pair"
@@ -67,12 +70,12 @@ done
 
 echo "== 3. Khôi phục CSDL trung tâm và đối soát chỉ mục, chia sẻ, yêu cầu =="
 cfile=$(file_of CENTRAL)
-restore_db postgres-central-primary restore_test_central "$SNAP/$cfile" && ok "khôi phục trung tâm ($cfile) vào restore_test_central" || bad "khôi phục trung tâm thất bại"
-chk "search_document" "$(q postgres-central-primary restore_test_central 'select count(*) from search_document')" "$(mval central_search_document)"
-chk "tổng lượt shares (jsonb)" "$(q postgres-central-primary restore_test_central 'select coalesce(sum(jsonb_array_length(shares)),0) from search_document')" "$(mval central_shares_total)"
-chk "access_request" "$(q postgres-central-primary restore_test_central 'select count(*) from access_request')" "$(mval central_access_request)"
-chk "document_share (bảng cũ)" "$(q postgres-central-primary restore_test_central 'select count(*) from document_share')" "$(mval central_document_share)"
-drop_db postgres-central-primary restore_test_central
+restore_db "$(central_leader)" restore_test_central "$SNAP/$cfile" && ok "khôi phục trung tâm ($cfile) vào restore_test_central" || bad "khôi phục trung tâm thất bại"
+chk "search_document" "$(q "$(central_leader)" restore_test_central 'select count(*) from search_document')" "$(mval central_search_document)"
+chk "tổng lượt shares (jsonb)" "$(q "$(central_leader)" restore_test_central 'select coalesce(sum(jsonb_array_length(shares)),0) from search_document')" "$(mval central_shares_total)"
+chk "access_request" "$(q "$(central_leader)" restore_test_central 'select count(*) from access_request')" "$(mval central_access_request)"
+chk "document_share (bảng cũ)" "$(q "$(central_leader)" restore_test_central 'select count(*) from document_share')" "$(mval central_document_share)"
+drop_db "$(central_leader)" restore_test_central
 
 echo "== 4. Kiểm MinIO: giải mã và liệt kê, có tệp và không rỗng =="
 for label in HR ACC SALES; do

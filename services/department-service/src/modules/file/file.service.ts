@@ -55,16 +55,22 @@ export class FileService {
 
     const client = tx || this.prisma;
 
-    // Lưu thông tin vào FILE_OBJECT
-    const fileRecord = await client.fileObject.create({
-      data: {
-        fileName: file.originalname,
-        storagePath,
-        mimeType: file.mimetype,
-        sizeBytes: BigInt(file.size),
-        checksumSha256,
-      },
-    });
+    // Lưu thông tin vào FILE_OBJECT. CSDL lỗi (sập, quá tải) thì dọn tệp vừa tải lên, không để tệp mồ côi trong MinIO.
+    let fileRecord: FileObject;
+    try {
+      fileRecord = await client.fileObject.create({
+        data: {
+          fileName: file.originalname,
+          storagePath,
+          mimeType: file.mimetype,
+          sizeBytes: BigInt(file.size),
+          checksumSha256,
+        },
+      });
+    } catch (err) {
+      await this.deletePhysicalFile(storagePath);
+      throw err;
+    }
 
     this.logger.log(`File uploaded: ${file.originalname} -> ${storagePath} (SHA256: ${checksumSha256})`);
     return fileRecord;

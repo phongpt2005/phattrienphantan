@@ -10,6 +10,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/../.."
 set -a; . ./.env; set +a
+. infrastructure/scripts/lib-central.sh
 G=http://localhost:8000
 PASS=0; FAIL=0
 ok()  { PASS=$((PASS+1)); printf "  \033[32mPASS\033[0m %s\n" "$1"; }
@@ -18,8 +19,8 @@ chk() { if [ "$2" = "$3" ]; then ok "$1 ($2)"; else bad "$1 (nhận '$2', mong �
 jf()  { python -I -c "import sys,json;d=json.load(sys.stdin);print($1)" 2>/dev/null; }
 login() { curl -s -m 15 -X POST "$G/api/dept/$1/auth/login" -H 'content-type: application/json' \
   -d "{\"username\":\"$2\",\"password\":\"$3\"}" | jf "d['accessToken']"; }
-hr_sql() { docker exec postgres-hr-primary sh -c "psql -U \"\$POSTGRES_USER\" -d \"\$POSTGRES_DB\" -tAc \"$1\""; }
-central_sql() { docker exec postgres-central-primary psql -U "$POSTGRES_CENTRAL_USER" -d "$POSTGRES_CENTRAL_DB" -tAc "$1"; }
+hr_sql() { docker exec "$(hr_leader)" sh -c "psql -U \"\$POSTGRES_USER\" -d \"\$POSTGRES_DB\" -tAc \"$1\""; }
+central_sql() { docker exec "$(central_leader)" psql -U "$POSTGRES_CENTRAL_USER" -d "$POSTGRES_CENTRAL_DB" -tAc "$1"; }
 
 echo "== 0. Chuẩn bị: hai yêu cầu cho cùng tài liệu HR =="
 MGR=$(login hr hr_manager "$DEMO_MANAGER_PASSWORD")

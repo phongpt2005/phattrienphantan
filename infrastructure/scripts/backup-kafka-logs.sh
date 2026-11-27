@@ -4,7 +4,7 @@
 #   bash infrastructure/scripts/backup-kafka-logs.sh
 # Từ P1 B1: log nằm trên volume của từng broker (KAFKA_LOG_DIRS=/var/lib/kafka/data). Với RF = 3, mỗi broker giữ bản sao
 # của mọi partition, nên chụp một broker là đủ (mặc định kafka-1; đổi bằng KAFKA_BACKUP_BROKER, KAFKA_BACKUP_LOGDIR).
-# Broker đơn cũ (trước P1 B1) ghi log trong /tmp/kafka-logs: KAFKA_BACKUP_BROKER=kafka KAFKA_BACKUP_LOGDIR=/tmp/kafka-logs.
+# Broker đơn cũ (log trong /tmp/kafka-logs) đã gỡ ngày 2026-11-24; bản sao lưu gần nhất của nó: kafka_20261124_005140 (đã khôi phục thử; không gồm 396 sự kiện phát sinh sau đó).
 # Đích: %USERPROFILE%\OneDrive\dms_backups\kafka_<YYYYMMDD_HHMMSS>\
 # Mã hóa AES-256-CBC (PBKDF2, 200000 vòng) bằng BACKUP_ENCRYPTION_KEY trong .env. Thiếu khóa thì DỪNG.
 # manifest.txt ghi SHA-256 và kích thước của TỪNG TỆP GỐC (trước khi mã hóa), để restore-test đối chiếu từng tệp.

@@ -33,7 +33,9 @@ const HISTORY_DAYS = 7;
  *  - Registry (`department`) + lịch sử đổi trạng thái (`department_status_event`): node nào sống, sập lúc nào,
  *    phục hồi lúc nào, sập bao lâu, tỉ lệ sẵn sàng.
  *  - Prometheus: số bản đang sống của từng thành phần, độ trễ p95 và số lần dùng dự phòng của từng node, cảnh báo đang bật.
- *  - Kafka Connect REST: trạng thái connector Debezium của từng phòng ban.
+ *  - Kafka Connect REST: trạng thái connector Debezium của từng phòng ban. Hỏi lần lượt từng worker
+ *    (DEBEZIUM_URL là danh sách, cách nhau dấu phẩy): một worker sập vẫn đọc được qua worker còn lại.
+ *  - REST của Patroni (PATRONI_CLUSTERS) và etcd (ETCD_ENDPOINTS): máy chính, bản sao đồng bộ, quorum.
  *  - Central DB: đường ống đồng bộ (sự kiện đã áp, bị bỏ qua, vào DLQ).
  * Nguồn nào không truy cập được thì báo `unknown` chứ không đoán.
  */
@@ -41,7 +43,17 @@ const HISTORY_DAYS = 7;
 export class MonitoringService {
   private readonly logger = new Logger(MonitoringService.name);
   private readonly promUrl = process.env.PROMETHEUS_URL;
-  private readonly connectUrl = process.env.DEBEZIUM_URL;
+  private readonly connectUrls = (process.env.DEBEZIUM_URL ?? '').split(',').map((s) => s.trim()).filter(Boolean);
+  /** "Trung tâm=central-pg-1:8008,central-pg-2:8008;Phòng HR=hr-pg-1:8008,hr-pg-2:8008" */
+  private readonly patroniClusters = (process.env.PATRONI_CLUSTERS ?? '')
+    .split(';')
+    .map((s) => s.trim())
+    .filter(Boolean)
+    .map((s) => {
+      const [label, members] = s.split('=');
+      return { label: label.trim(), members: (members ?? '').split(',').map((m) => m.trim()).filter(Boolean) };
+    });
+  private readonly etcdEndpoints = (process.env.ETCD_ENDPOINTS ?? '').split(',').map((s) => s.trim()).filter(Boolean);
 
   constructor(
     private readonly pool: Pool,
@@ -83,21 +95,116 @@ export class MonitoringService {
   }
 
   private async connectors(): Promise<Array<{ name: string; state: string; tasks: string[] }> | null> {
-    if (!this.connectUrl) return null;
-    try {
-      const res = await fetch(`${this.connectUrl}/connectors?expand=status`, { signal: AbortSignal.timeout(2500) });
-      if (!res.ok) return null;
-      const body: Record<string, any> = await res.json();
-      return Object.entries(body)
-        .map(([name, v]) => ({
-          name,
-          state: v?.status?.connector?.state ?? 'UNKNOWN',
-          tasks: (v?.status?.tasks ?? []).map((t: any) => t.state),
-        }))
-        .sort((a, b) => a.name.localeCompare(b.name));
-    } catch {
-      return null;
+    // Mọi worker cùng nhóm thấy cùng trạng thái (lưu trong Kafka): lấy câu trả lời của worker đầu tiên còn sống
+    for (const url of this.connectUrls) {
+      try {
+        const res = await fetch(`${url}/connectors?expand=status`, { signal: AbortSignal.timeout(2500) });
+        if (!res.ok) continue;
+        const body: Record<string, any> = await res.json();
+        return Object.entries(body)
+          .map(([name, v]) => ({
+            name,
+            state: v?.status?.connector?.state ?? 'UNKNOWN',
+            tasks: (v?.status?.tasks ?? []).map((t: any) => t.state),
+          }))
+          .sort((a, b) => a.name.localeCompare(b.name));
+      } catch {
+        /* worker này không trả lời: thử worker kế tiếp */
+      }
     }
+    return null;
+  }
+
+  /** Số worker Kafka Connect đang trả lời trên tổng số đã khai báo. */
+  private async connectWorkers(): Promise<{ up: number; total: number } | null> {
+    if (this.connectUrls.length === 0) return null;
+    const r = await Promise.all(
+      this.connectUrls.map((u) => fetch(`${u}/`, { signal: AbortSignal.timeout(2000) }).then((x) => x.ok).catch(() => false)),
+    );
+    return { up: r.filter(Boolean).length, total: r.length };
+  }
+
+  /** Trạng thái từng cụm Patroni, đọc GET /patroni của từng node (không cần xác thực). */
+  private async patroni(): Promise<Array<{ key: string; name: string; group: string; status: ComponentStatus; detail: string }>> {
+    return Promise.all(
+      this.patroniClusters.map(async (c) => {
+        const nodes = await Promise.all(
+          c.members.map(async (m) => {
+            try {
+              const res = await fetch(`http://${m}/patroni`, { signal: AbortSignal.timeout(2000) });
+              const b: any = await res.json();
+              return { member: m.split(':')[0], role: String(b?.role ?? ''), state: String(b?.state ?? ''), replication: (b?.replication ?? []) as any[] };
+            } catch {
+              return { member: m.split(':')[0], role: 'down', state: 'down', replication: [] as any[] };
+            }
+          }),
+        );
+        const leaders = nodes.filter((n) => n.role === 'primary' || n.role === 'master');
+        const sync = leaders.length === 1
+          ? leaders[0].replication.filter((r) => r.state === 'streaming' && (r.sync_state === 'sync' || r.sync_state === 'quorum')).map((r) => r.application_name)
+          : [];
+        const down = nodes.filter((n) => n.role === 'down').map((n) => n.member);
+        let status: ComponentStatus;
+        let detail: string;
+        if (leaders.length === 0) {
+          status = 'down';
+          detail = 'Không có máy chính: không ghi được';
+        } else if (leaders.length > 1) {
+          status = 'down';
+          detail = `Có ${leaders.length} node tự nhận là máy chính (${leaders.map((l) => l.member).join(', ')})`;
+        } else if (sync.length === 0) {
+          status = 'warn';
+          detail = `Máy chính ${leaders[0].member}; chưa có bản sao đồng bộ (ghi tạm không chờ bản sao)${down.length ? ` · node không trả lời: ${down.join(', ')}` : ''}`;
+        } else {
+          status = 'ok';
+          detail = `Máy chính ${leaders[0].member} · bản sao đồng bộ ${sync.join(', ')}`;
+        }
+        return { key: `patroni-${c.label}`, name: `Cụm CSDL ${c.label} (Patroni)`, group: 'Lưu trữ', status, detail };
+      }),
+    );
+  }
+
+  /** Quorum etcd: GET /health của từng nút. */
+  private async etcd(): Promise<{ key: string; name: string; group: string; status: ComponentStatus; detail: string } | null> {
+    if (this.etcdEndpoints.length === 0) return null;
+    const r = await Promise.all(
+      this.etcdEndpoints.map(async (e) => {
+        try {
+          const res = await fetch(`http://${e}/health`, { signal: AbortSignal.timeout(2000) });
+          const b: any = await res.json();
+          return String(b?.health) === 'true';
+        } catch {
+          return false;
+        }
+      }),
+    );
+    const up = r.filter(Boolean).length;
+    const total = r.length;
+    const quorum = up > total / 2;
+    return {
+      key: 'etcd',
+      name: 'etcd (điều phối chuyển máy chính)',
+      group: 'Lưu trữ',
+      status: up === total ? 'ok' : quorum ? 'warn' : 'down',
+      detail: `${up}/${total} nút khỏe${quorum ? '' : ' · mất quorum: không tự chuyển máy chính được, máy chính hiện tại vẫn ghi (failsafe)'}`,
+    };
+  }
+
+  /** Thành phần hạ tầng dữ liệu: dùng ở cả trang bình thường và trang khi CSDL trung tâm sập. */
+  private async dataInfra() {
+    const [workers, clusters, etcd] = await Promise.all([this.connectWorkers(), this.patroni(), this.etcd()]);
+    const out: Array<{ key: string; name: string; group: string; status: ComponentStatus; detail: string }> = [...clusters];
+    if (etcd) out.push(etcd);
+    if (workers) {
+      out.push({
+        key: 'connect-workers',
+        name: 'Kafka Connect (worker Debezium)',
+        group: 'Đồng bộ dữ liệu',
+        status: workers.up === 0 ? 'down' : workers.up < workers.total ? 'warn' : 'ok',
+        detail: `${workers.up}/${workers.total} worker đang trả lời`,
+      });
+    }
+    return out;
   }
 
   // ---------------------------------------------------------------- lịch sử trạng thái
@@ -315,6 +422,8 @@ export class MonitoringService {
       detail: wr ? `${wr.up}/${wr.total} bản đang sống${parts !== null ? ` · giữ ${parts} partition` : ''}` : 'Không truy vấn được Prometheus',
     });
 
+    components.push(...(await this.dataInfra()));
+
     if (connectors === null) {
       components.push({ key: 'connect', name: 'Kafka Connect (Debezium)', group: 'Đồng bộ dữ liệu', status: 'unknown', detail: 'Không truy vấn được Kafka Connect' });
     } else if (connectors.length === 0) {
@@ -395,11 +504,12 @@ export class MonitoringService {
   }
 
   private async degradedHealth(now: number) {
-    const [promUpSearch, promUpWorker, alerts, connectors] = await Promise.all([
+    const [promUpSearch, promUpWorker, alerts, connectors, infra] = await Promise.all([
       this.prom('up{job="dms-search-engine-service"}'),
       this.prom('up{job="dms-content-worker"}'),
       this.firingAlerts(),
       this.connectors(),
+      this.dataInfra(),
     ]);
     let snapshot: Array<{ dept_code: string; dept_name: string; lifecycle: Lifecycle; node_endpoint: string }> = [];
     try {
@@ -420,6 +530,7 @@ export class MonitoringService {
         { key: 'central-db', name: 'CSDL chỉ mục trung tâm (PostgreSQL)', group: 'Lưu trữ', status: 'down' as ComponentStatus, detail: 'Không kết nối được. Tìm kiếm liên phòng vẫn chạy trực tiếp tại các node (dùng bản chụp danh bạ và quyền chia sẻ); mất dự phòng khi node sập, lịch sử sự cố tạm không đọc được' },
         { key: 'search', name: 'Search Gateway + Registry', group: 'Tầng dùng chung', status: 'warn' as ComponentStatus, detail: `${rep(promUpSearch)} · đang chạy bằng bản chụp` },
         { key: 'content-worker', name: 'Content Worker (lập chỉ mục nội dung tệp)', group: 'Tầng dùng chung', status: 'ok' as ComponentStatus, detail: rep(promUpWorker) },
+        ...infra,
         ...(connectors ?? []).map((c) => ({ key: `connector-${c.name}`, name: `Connector ${c.name}`, group: 'Đồng bộ dữ liệu', status: (c.state === 'RUNNING' ? 'ok' : 'warn') as ComponentStatus, detail: `connector ${c.state}` })),
       ],
       alerts,

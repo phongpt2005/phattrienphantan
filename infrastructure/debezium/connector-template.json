@@ -32,5 +32,6 @@
   "value.converter": "org.apache.kafka.connect.json.JsonConverter",
   "value.converter.schemas.enable": "false",
 
-  "heartbeat.interval.ms": "10000"
+  "heartbeat.interval.ms": "10000",
+  "heartbeat.action.query": "INSERT INTO public.debezium_heartbeat (id, beat_at) VALUES (1, now()) ON CONFLICT (id) DO UPDATE SET beat_at = EXCLUDED.beat_at"
 }

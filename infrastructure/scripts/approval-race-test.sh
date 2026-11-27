@@ -8,6 +8,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/../.."
 set -a; . ./.env; set +a
+. infrastructure/scripts/lib-central.sh
 G=http://localhost:8000
 N=${RACE_N:-8}
 PASS=0; FAIL=0
@@ -42,18 +43,18 @@ CREJ=$(cat "$TMPD"/*.code | grep -cE '^(409|400)$')
 rm -rf "$TMPD"
 
 echo "== 2. Trạng thái và số lượt chia sẻ =="
-ST=$(docker exec postgres-central-primary psql -U "$POSTGRES_CENTRAL_USER" -d "$POSTGRES_CENTRAL_DB" -tAc "select status from access_request where request_id=$RQ")
+ST=$(docker exec "$(central_leader)" psql -U "$POSTGRES_CENTRAL_USER" -d "$POSTGRES_CENTRAL_DB" -tAc "select status from access_request where request_id=$RQ")
 [ "$ST" = APPROVED ] && ok "yêu cầu ở trạng thái APPROVED" || bad "trạng thái là '$ST' (mong đợi APPROVED)"
 # Node chỉ giữ MỘT lượt đang hiệu lực cho cặp (tài liệu, phòng nhận) theo chỉ mục duy nhất; duyệt lặp chỉ gia hạn/đổi quyền.
-SH=$(docker exec postgres-hr-primary sh -c "psql -U \"\$POSTGRES_USER\" -d \"\$POSTGRES_DB\" -tAc \"select count(*) from document_share where doc_id=$DOC and shared_with_dept='ACC' and is_revoked=false\"")
+SH=$(docker exec "$(hr_leader)" sh -c "psql -U \"\$POSTGRES_USER\" -d \"\$POSTGRES_DB\" -tAc \"select count(*) from document_share where doc_id=$DOC and shared_with_dept='ACC' and is_revoked=false\"")
 [ "$SH" = 1 ] && ok "node HR chỉ có 1 lượt chia sẻ đang hiệu lực cho (tài liệu $DOC, ACC)" || bad "số lượt đang hiệu lực = '$SH' (mong đợi 1)"
 
 echo "== 3. Nhánh xác định: yêu cầu đang PROCESSING thì người duyệt khác nhận 409 =="
 RQ2=$(curl -s -m 15 -X POST $G/api/search/shares/requests -H "Authorization: Bearer $ACCS" -H 'content-type: application/json'   -d "{\"sourceDocId\":$DOC,\"targetDept\":\"HR\",\"requesterDept\":\"ACC\",\"requesterUsername\":\"acc_staff\",\"requestedDays\":1,\"requestedPermission\":\"VIEW\",\"reason\":\"409 test $(date +%s)\"}"   | jf "d['request']['request_id']")
-docker exec postgres-central-primary psql -U "$POSTGRES_CENTRAL_USER" -d "$POSTGRES_CENTRAL_DB" -tAc "update access_request set status='PROCESSING', updated_at=now() where request_id=$RQ2" >/dev/null
+docker exec "$(central_leader)" psql -U "$POSTGRES_CENTRAL_USER" -d "$POSTGRES_CENTRAL_DB" -tAc "update access_request set status='PROCESSING', updated_at=now() where request_id=$RQ2" >/dev/null
 C409=$(curl -s -o /dev/null -w '%{http_code}' -X POST "$G/api/search/shares/requests/$RQ2/approve" -H "Authorization: Bearer $MGR" -H 'content-type: application/json' -d '{"permission":"VIEW"}')
 [ "$C409" = 409 ] && ok "yêu cầu đang PROCESSING bị từ chối bằng 409" || bad "yêu cầu PROCESSING trả '$C409' (mong đợi 409)"
-docker exec postgres-central-primary psql -U "$POSTGRES_CENTRAL_USER" -d "$POSTGRES_CENTRAL_DB" -tAc "update access_request set status='PENDING' where request_id=$RQ2" >/dev/null
+docker exec "$(central_leader)" psql -U "$POSTGRES_CENTRAL_USER" -d "$POSTGRES_CENTRAL_DB" -tAc "update access_request set status='PENDING' where request_id=$RQ2" >/dev/null
 
 echo; echo "===== KẾT QUẢ ĐUA DUYỆT: $PASS đạt, $FAIL lỗi ====="
 [ "$FAIL" -eq 0 ]

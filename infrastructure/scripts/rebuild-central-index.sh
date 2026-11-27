@@ -14,9 +14,10 @@
 set -uo pipefail
 cd "$(dirname "$0")/../.."
 set -a; . ./.env; set +a
+. infrastructure/scripts/lib-central.sh
 
-C()  { docker exec -i postgres-central-primary psql -U "$POSTGRES_CENTRAL_USER" -d "$POSTGRES_CENTRAL_DB" -v ON_ERROR_STOP=1 -q "$@"; }
-Cq() { docker exec postgres-central-primary psql -U "$POSTGRES_CENTRAL_USER" -d "$POSTGRES_CENTRAL_DB" -tAc "$1"; }
+C()  { docker exec -i "$(central_leader)" psql -U "$POSTGRES_CENTRAL_USER" -d "$POSTGRES_CENTRAL_DB" -v ON_ERROR_STOP=1 -q "$@"; }
+Cq() { docker exec "$(central_leader)" psql -U "$POSTGRES_CENTRAL_USER" -d "$POSTGRES_CENTRAL_DB" -tAc "$1"; }
 PASS=0; FAIL=0
 ok()  { PASS=$((PASS+1)); printf "  \033[32mPASS\033[0m %s\n" "$1"; }
 bad() { FAIL=$((FAIL+1)); printf "  \033[31mFAIL\033[0m %s\n" "$1"; }
@@ -34,7 +35,7 @@ trap on_exit EXIT
 # Ánh xạ phòng -> container DB của node (đọc user/db từ biến môi trường của chính container)
 node_db_container() {
   case "$1" in
-    HR) echo postgres-hr-primary ;;
+    HR) hr_leader ;;
     ACC) echo postgres-acc-primary ;;
     SALES) echo dept-sales-db ;;
     *) echo "" ;;

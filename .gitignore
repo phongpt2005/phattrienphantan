@@ -11,3 +11,6 @@ dist/
 .DS_Store
 Thumbs.db
 departments/
+
+# Nhật ký vận hành cục bộ (bộ tự co giãn, bài kiểm)
+logs/

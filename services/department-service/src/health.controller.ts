@@ -18,6 +18,7 @@ export class HealthController {
       status: dbStatus === 'ok' ? 'ok' : 'degraded',
       service: 'department-service',
       department: process.env.DEPT_CODE,
+      instance: process.env.HOSTNAME, // bản nào (trong các bản của phòng) đã trả lời
       database: dbStatus,
       timestamp: new Date().toISOString(),
     };
